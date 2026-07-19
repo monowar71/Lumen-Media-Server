@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:5099/"
+      "url": "http://localhost:5080/"
     }
   ],
   "paths": {
@@ -2629,6 +2629,12 @@
               "string"
             ]
           },
+          "overview": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "airDate": {
             "type": [
               "null",
@@ -3675,6 +3681,41 @@
           }
         }
       },
+      "PersonDto": {
+        "required": [
+          "name",
+          "type"
+        ],
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "type": {
+            "type": "string"
+          },
+          "order": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "thumb": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "PlaybackDecisionRequest": {
         "required": [
           "mediaId"
@@ -4126,6 +4167,18 @@
             "items": {
               "type": "string"
             }
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PersonDto"
+            }
+          },
+          "trailerUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "externalIds": {
             "$ref": "#/components/schemas/ExternalIds"

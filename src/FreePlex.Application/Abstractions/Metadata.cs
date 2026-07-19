@@ -4,6 +4,24 @@ namespace FreePlex.Application.Abstractions;
 
 public sealed record MetadataMatch(string Provider, string ProviderId, string Title, int? Year, double Score);
 
+/// <summary>Actor/director/writer credit as returned by a metadata provider.</summary>
+public sealed record PersonCredit(
+    string Name,
+    PersonType Type,
+    string? Role,
+    int Order,
+    string? ThumbUrl,
+    string? ProviderPersonId);
+
+/// <summary>Episode-level metadata (one season fetch returns all its episodes).</summary>
+public sealed record EpisodeMetadata(
+    int SeasonNumber,
+    int EpisodeNumber,
+    string? Title,
+    string? Overview,
+    DateOnly? AirDate,
+    long? RuntimeMs);
+
 public sealed record MetadataDetails(
     string Provider,
     string ProviderId,
@@ -19,7 +37,9 @@ public sealed record MetadataDetails(
     IReadOnlyList<string> Genres,
     string? Tagline = null,
     DateOnly? ReleaseDate = null,
-    long? RuntimeMs = null);
+    long? RuntimeMs = null,
+    IReadOnlyList<PersonCredit>? People = null,
+    string? TrailerUrl = null);
 
 /// <summary>Locale pair used when fetching localized metadata from providers.</summary>
 public sealed record MetadataLanguage(string Language, string FallbackLanguage);
@@ -45,6 +65,15 @@ public interface IMetadataProvider
         MediaKind kind,
         MetadataLanguage language,
         CancellationToken ct);
+
+    /// <summary>
+    /// Episode titles/overviews for one season. Default: not supported by this provider.
+    /// </summary>
+    Task<IReadOnlyList<EpisodeMetadata>> GetSeasonEpisodesAsync(
+        string providerId,
+        int seasonNumber,
+        MetadataLanguage language,
+        CancellationToken ct) => Task.FromResult<IReadOnlyList<EpisodeMetadata>>([]);
 }
 
 /// <summary>Downloads a remote image into the local artwork cache.</summary>

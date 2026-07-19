@@ -204,6 +204,41 @@ public sealed class MediaRepository(FreePlexDbContext db) : IMediaRepository
         return genre;
     }
 
+    public async Task<Person> GetOrCreatePersonAsync(string name, string? tmdbId, string? thumbUrl, CancellationToken ct)
+    {
+        var trimmed = name.Trim();
+
+        // Check local (not yet saved) entries first: one enrich pass may credit the same
+        // person twice (e.g. actor + director) and a DB-only lookup would double-insert.
+        var person = db.People.Local.FirstOrDefault(p =>
+                         tmdbId is not null && p.TmdbId == tmdbId)
+                     ?? db.People.Local.FirstOrDefault(p =>
+                         p.Name.Equals(trimmed, StringComparison.OrdinalIgnoreCase));
+
+        if (person is null && tmdbId is not null)
+            person = await db.People.FirstOrDefaultAsync(p => p.TmdbId == tmdbId, ct);
+        person ??= await db.People.FirstOrDefaultAsync(p => p.Name == trimmed, ct);
+
+        if (person is null)
+        {
+            person = new Person(trimmed, tmdbId);
+            await db.People.AddAsync(person, ct);
+        }
+
+        if (thumbUrl is not null)
+            person.ThumbPath = thumbUrl;
+        return person;
+    }
+
+    public Task RemovePeopleAsync(Guid mediaItemId, CancellationToken ct) =>
+        db.MediaPeople.Where(mp => mp.MediaItemId == mediaItemId).ExecuteDeleteAsync(ct);
+
+    public async Task AddMediaPersonAsync(MediaPerson link, CancellationToken ct) =>
+        await db.MediaPeople.AddAsync(link, ct);
+
+    public async Task<IReadOnlyList<Episode>> GetTrackedEpisodesForSeriesAsync(Guid seriesId, CancellationToken ct) =>
+        await db.Episodes.Where(e => e.SeriesId == seriesId).ToListAsync(ct);
+
     public void RemoveArtwork(Artwork artwork) => db.Artworks.Remove(artwork);
 
     public async Task AddArtworkAsync(Artwork artwork, CancellationToken ct) =>

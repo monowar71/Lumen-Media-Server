@@ -128,7 +128,11 @@ public sealed class MetadataEnricher(
         await uow.SaveChangesAsync(ct);
 
         await ApplyGenresAsync(item, details.Genres, ct);
+        await ApplyPeopleAsync(item, details.People, ct);
         await uow.SaveChangesAsync(ct);
+
+        if (item is Series)
+            await ApplyEpisodeMetadataAsync(item, details, language, ct);
 
         await ApplyArtworkAsync(item, ArtworkKind.Poster, details.PosterUrl, ct);
         if (!string.Equals(details.PosterUrl, details.BackdropUrl, StringComparison.Ordinal))
@@ -160,6 +164,23 @@ public sealed class MetadataEnricher(
             var existing = tmdb is null ? null : await tmdb.GetDetailsAsync(item.TmdbId, item.Kind, language, ct);
             if (existing is not null)
                 return existing;
+        }
+
+        // TMDB is the richest provider (localized episodes, cast, trailers). Items matched
+        // via TVDB/TVMaze before TMDB was configured would otherwise stay on the poorer
+        // provider forever — try to upgrade the match before honouring the stored id.
+        var tmdbConfigured = providers.FirstOrDefault(p =>
+            p.Name.Equals(TmdbMetadataProvider.ProviderName, StringComparison.OrdinalIgnoreCase) && p.IsConfigured);
+        if (tmdbConfigured is not null)
+        {
+            var tmdbMatches = await tmdbConfigured.SearchAsync(item.Title, item.Year, item.Kind, language, ct);
+            var tmdbTop = tmdbMatches.FirstOrDefault();
+            if (tmdbTop is not null && tmdbTop.Score >= 0.70)
+            {
+                var upgraded = await tmdbConfigured.GetDetailsAsync(tmdbTop.ProviderId, item.Kind, language, ct);
+                if (upgraded is not null)
+                    return upgraded;
+            }
         }
 
         if (!string.IsNullOrWhiteSpace(item.TvdbId))
@@ -231,6 +252,91 @@ public sealed class MetadataEnricher(
 
         if (item is Movie movie)
             movie.SetMovieDetails(details.Tagline, details.ReleaseDate, details.RuntimeMs);
+
+        // null = provider has no trailer data; keep whatever an earlier provider found.
+        if (details.TrailerUrl is not null)
+            item.SetTrailerUrl(details.TrailerUrl);
+    }
+
+    /// <summary>
+    /// Replaces the item's credits. Null means the provider has no people data — existing
+    /// credits are preserved; an empty list explicitly clears them.
+    /// </summary>
+    private async Task ApplyPeopleAsync(MediaItem item, IReadOnlyList<PersonCredit>? credits, CancellationToken ct)
+    {
+        if (credits is null)
+            return;
+
+        await uow.Media.RemovePeopleAsync(item.Id, ct);
+
+        var seen = new HashSet<(Guid PersonId, PersonType Type)>();
+        foreach (var credit in credits)
+        {
+            var person = await uow.Media.GetOrCreatePersonAsync(credit.Name, credit.ProviderPersonId, credit.ThumbUrl, ct);
+            if (!seen.Add((person.Id, credit.Type)))
+                continue;
+
+            await uow.Media.AddMediaPersonAsync(
+                new MediaPerson(item.Id, person.Id, credit.Type, credit.Role, credit.Order), ct);
+        }
+    }
+
+    /// <summary>
+    /// Fills episode titles/overviews for every locally known season of a series.
+    /// One provider request per season; failures degrade to numbered episodes as before.
+    /// </summary>
+    private async Task ApplyEpisodeMetadataAsync(
+        MediaItem series,
+        MetadataDetails details,
+        MetadataLanguage language,
+        CancellationToken ct)
+    {
+        var provider = providers.FirstOrDefault(p =>
+            p.Name.Equals(details.Provider, StringComparison.OrdinalIgnoreCase));
+        if (provider is null)
+            return;
+
+        var episodes = await uow.Media.GetTrackedEpisodesForSeriesAsync(series.Id, ct);
+        if (episodes.Count == 0)
+            return;
+
+        var updated = 0;
+        foreach (var seasonNumber in episodes.Select(e => e.SeasonNumber).Distinct().Order())
+        {
+            IReadOnlyList<EpisodeMetadata> fetched;
+            try
+            {
+                fetched = await provider.GetSeasonEpisodesAsync(details.ProviderId, seasonNumber, language, ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+            {
+                logger.LogWarning(ex, "Episode metadata fetch failed for {Series} S{Season}", series.Title, seasonNumber);
+                continue;
+            }
+
+            if (fetched.Count == 0)
+                continue;
+
+            var byNumber = fetched.ToDictionary(m => m.EpisodeNumber);
+            foreach (var episode in episodes.Where(e => e.SeasonNumber == seasonNumber))
+            {
+                if (!byNumber.TryGetValue(episode.EpisodeNumber, out var meta))
+                    continue;
+
+                episode.SetDetails(
+                    meta.Title ?? episode.Title,
+                    meta.Overview ?? episode.Overview,
+                    meta.AirDate ?? episode.AirDate,
+                    meta.RuntimeMs ?? episode.RuntimeMs);
+                updated++;
+            }
+        }
+
+        if (updated > 0)
+        {
+            await uow.SaveChangesAsync(ct);
+            logger.LogInformation("Applied episode metadata to {Count} episode(s) of {Series}", updated, series.Title);
+        }
     }
 
     private async Task ApplyGenresAsync(MediaItem item, IReadOnlyList<string> genres, CancellationToken ct)

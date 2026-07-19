@@ -94,7 +94,10 @@ public sealed class TmdbMetadataProvider(
         var query = new Dictionary<string, string?>
         {
             ["language"] = language.Language,
-            ["append_to_response"] = "external_ids",
+            // credits/videos ride along on the details call — no extra requests per item.
+            ["append_to_response"] = "external_ids,credits,videos",
+            // Videos are language-tagged; without this a ru-RU request hides EN-only trailers.
+            ["include_video_language"] = $"{ShortLang(language.Language)},{ShortLang(language.FallbackLanguage)},null",
         };
 
         var details = await GetAsync<TmdbDetailsResponse>(client, path, query, ct);
@@ -139,7 +142,143 @@ public sealed class TmdbMetadataProvider(
             Genres: details.Genres?.Select(g => g.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Cast<string>().ToList() ?? [],
             Tagline: details.Tagline,
             ReleaseDate: release,
-            RuntimeMs: runtimeMs);
+            RuntimeMs: runtimeMs,
+            People: MapCredits(details.Credits),
+            TrailerUrl: PickTrailerUrl(details.Videos?.Results));
+    }
+
+    public async Task<IReadOnlyList<EpisodeMetadata>> GetSeasonEpisodesAsync(
+        string providerId,
+        int seasonNumber,
+        MetadataLanguage language,
+        CancellationToken ct)
+    {
+        if (!IsConfigured || string.IsNullOrWhiteSpace(providerId))
+            return [];
+
+        var client = httpClientFactory.CreateClient("Tmdb");
+        var path = $"tv/{providerId}/season/{seasonNumber}";
+        var query = new Dictionary<string, string?> { ["language"] = language.Language };
+
+        var season = await GetAsync<TmdbSeasonResponse>(client, path, query, ct);
+        if (season?.Episodes is null || season.Episodes.Count == 0)
+            return [];
+
+        // One fallback fetch fills gaps when the preferred language has no episode texts yet.
+        Dictionary<int, TmdbEpisode>? fallbackByNumber = null;
+        if (!string.Equals(language.Language, language.FallbackLanguage, StringComparison.OrdinalIgnoreCase)
+            && season.Episodes.Any(e => string.IsNullOrWhiteSpace(e.Overview) || string.IsNullOrWhiteSpace(e.Name)))
+        {
+            query["language"] = language.FallbackLanguage;
+            var fallback = await GetAsync<TmdbSeasonResponse>(client, path, query, ct);
+            fallbackByNumber = fallback?.Episodes?
+                .Where(e => e.EpisodeNumber is not null)
+                .ToDictionary(e => e.EpisodeNumber!.Value);
+        }
+
+        var result = new List<EpisodeMetadata>(season.Episodes.Count);
+        foreach (var ep in season.Episodes)
+        {
+            if (ep.EpisodeNumber is null)
+                continue;
+
+            var fb = fallbackByNumber?.GetValueOrDefault(ep.EpisodeNumber.Value);
+            // TMDB pads missing localized titles with "Episode N" — prefer the fallback text then.
+            var epName = ep.Name;
+            if (string.IsNullOrWhiteSpace(epName) || IsPlaceholderEpisodeTitle(epName, ep.EpisodeNumber.Value))
+                epName = fb?.Name ?? epName;
+            var overview = string.IsNullOrWhiteSpace(ep.Overview) ? fb?.Overview : ep.Overview;
+
+            DateOnly? air = null;
+            if (DateOnly.TryParse(ep.AirDate, CultureInfo.InvariantCulture, DateTimeStyles.None, out var airDate))
+                air = airDate;
+
+            result.Add(new EpisodeMetadata(
+                SeasonNumber: season.SeasonNumber ?? seasonNumber,
+                EpisodeNumber: ep.EpisodeNumber.Value,
+                Title: string.IsNullOrWhiteSpace(epName) ? null : epName.Trim(),
+                Overview: string.IsNullOrWhiteSpace(overview) ? null : overview.Trim(),
+                AirDate: air,
+                RuntimeMs: ep.Runtime is > 0 ? ep.Runtime.Value * 60_000L : null));
+        }
+
+        return result;
+    }
+
+    /// <summary>"Episode 5" / "Эпизод 5" auto-generated stubs are not real localized titles.</summary>
+    private static bool IsPlaceholderEpisodeTitle(string title, int episodeNumber) =>
+        title.Trim().Equals($"Episode {episodeNumber}", StringComparison.OrdinalIgnoreCase)
+        || title.Trim().Equals($"Эпизод {episodeNumber}", StringComparison.OrdinalIgnoreCase);
+
+    private static List<PersonCredit> MapCredits(TmdbCredits? credits)
+    {
+        if (credits is null)
+            return [];
+
+        var people = new List<PersonCredit>();
+        foreach (var c in (credits.Cast ?? []).Where(c => !string.IsNullOrWhiteSpace(c.Name)).Take(MaxCastMembers))
+        {
+            people.Add(new PersonCredit(
+                c.Name!.Trim(),
+                PersonType.Actor,
+                string.IsNullOrWhiteSpace(c.Character) ? null : c.Character.Trim(),
+                c.Order ?? people.Count,
+                ProfileUrl(c.ProfilePath),
+                c.Id?.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        var order = 100; // crew is sorted after the cast block
+        foreach (var c in (credits.Crew ?? []).Where(c => !string.IsNullOrWhiteSpace(c.Name)))
+        {
+            PersonType? type = c.Job switch
+            {
+                "Director" => PersonType.Director,
+                "Writer" or "Screenplay" or "Novel" => PersonType.Writer,
+                _ => null,
+            };
+            if (type is null)
+                continue;
+
+            people.Add(new PersonCredit(
+                c.Name!.Trim(),
+                type.Value,
+                c.Job,
+                order++,
+                ProfileUrl(c.ProfilePath),
+                c.Id?.ToString(CultureInfo.InvariantCulture)));
+        }
+
+        return people;
+    }
+
+    /// <summary>
+    /// Best trailer: official YouTube "Trailer" first, then any YouTube trailer, then a teaser.
+    /// </summary>
+    public static string? PickTrailerUrl(IReadOnlyList<TmdbVideo>? videos)
+    {
+        if (videos is null || videos.Count == 0)
+            return null;
+
+        var candidates = videos
+            .Where(v => string.Equals(v.Site, "YouTube", StringComparison.OrdinalIgnoreCase)
+                        && !string.IsNullOrWhiteSpace(v.Key))
+            .ToList();
+        var best = candidates
+            .Where(v => string.Equals(v.Type, "Trailer", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(v => v.Official == true)
+            .FirstOrDefault()
+            ?? candidates.FirstOrDefault(v => string.Equals(v.Type, "Teaser", StringComparison.OrdinalIgnoreCase));
+
+        return best is null ? null : $"https://www.youtube.com/watch?v={best.Key}";
+    }
+
+    private const int MaxCastMembers = 20;
+
+    /// <summary>"ru-RU" → "ru" (include_video_language expects ISO 639-1 codes).</summary>
+    private static string ShortLang(string language)
+    {
+        var dash = language.IndexOf('-');
+        return dash > 0 ? language[..dash] : language;
     }
 
     private async Task<T?> GetAsync<T>(HttpClient client, string path, Dictionary<string, string?> query, CancellationToken ct)
@@ -156,14 +295,29 @@ public sealed class TmdbMetadataProvider(
 
         try
         {
-            using var response = await client.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode)
+            for (var attempt = 0; ; attempt++)
             {
-                logger.LogWarning("TMDB {Path} returned {Status}", path, (int)response.StatusCode);
-                return default;
-            }
+                using var response = await client.GetAsync(url, ct);
+                if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests && attempt < MaxRateLimitRetries)
+                {
+                    // Bulk refresh (episodes fetch per season) can trip TMDB's rate limit;
+                    // honour Retry-After with a sane cap instead of dropping the item.
+                    var delay = response.Headers.RetryAfter?.Delta ?? TimeSpan.FromSeconds(1);
+                    if (delay > MaxRetryAfter)
+                        delay = MaxRetryAfter;
+                    logger.LogInformation("TMDB rate limited on {Path}; retrying in {Delay}s", path, delay.TotalSeconds);
+                    await Task.Delay(delay, ct);
+                    continue;
+                }
 
-            return await response.Content.ReadFromJsonAsync<T>(JsonOptions, ct);
+                if (!response.IsSuccessStatusCode)
+                {
+                    logger.LogWarning("TMDB {Path} returned {Status}", path, (int)response.StatusCode);
+                    return default;
+                }
+
+                return await response.Content.ReadFromJsonAsync<T>(JsonOptions, ct);
+            }
         }
         // HttpClient timeouts throw TaskCanceledException without ct being cancelled;
         // treat them as provider failures, propagate only real cancellation.
@@ -174,8 +328,14 @@ public sealed class TmdbMetadataProvider(
         }
     }
 
+    private const int MaxRateLimitRetries = 3;
+    private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(10);
+
     private static string? ImageUrl(string? path) =>
         string.IsNullOrWhiteSpace(path) ? null : $"https://image.tmdb.org/t/p/w780{path}";
+
+    private static string? ProfileUrl(string? path) =>
+        string.IsNullOrWhiteSpace(path) ? null : $"https://image.tmdb.org/t/p/w185{path}";
 
     private static int? ParseYear(string? date)
     {
@@ -274,8 +434,40 @@ public sealed class TmdbMetadataProvider(
         [property: JsonPropertyName("episode_run_time")] List<int>? EpisodeRunTime,
         string? Tagline,
         List<TmdbGenre>? Genres,
-        [property: JsonPropertyName("external_ids")] TmdbExternalIds? ExternalIds);
+        [property: JsonPropertyName("external_ids")] TmdbExternalIds? ExternalIds,
+        TmdbCredits? Credits,
+        TmdbVideos? Videos);
 
     private sealed record TmdbGenre(string? Name);
     private sealed record TmdbExternalIds([property: JsonPropertyName("imdb_id")] string? ImdbId);
+
+    private sealed record TmdbCredits(List<TmdbCastMember>? Cast, List<TmdbCrewMember>? Crew);
+
+    private sealed record TmdbCastMember(
+        int? Id,
+        string? Name,
+        string? Character,
+        int? Order,
+        [property: JsonPropertyName("profile_path")] string? ProfilePath);
+
+    private sealed record TmdbCrewMember(
+        int? Id,
+        string? Name,
+        string? Job,
+        [property: JsonPropertyName("profile_path")] string? ProfilePath);
+
+    private sealed record TmdbVideos(List<TmdbVideo>? Results);
+
+    public sealed record TmdbVideo(string? Site, string? Type, string? Key, bool? Official);
+
+    private sealed record TmdbSeasonResponse(
+        [property: JsonPropertyName("season_number")] int? SeasonNumber,
+        List<TmdbEpisode>? Episodes);
+
+    private sealed record TmdbEpisode(
+        [property: JsonPropertyName("episode_number")] int? EpisodeNumber,
+        string? Name,
+        string? Overview,
+        [property: JsonPropertyName("air_date")] string? AirDate,
+        int? Runtime);
 }

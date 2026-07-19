@@ -40,6 +40,8 @@ public abstract class MediaItem
     public string? TmdbId { get; protected set; }
     public string? TvdbId { get; protected set; }
     public string? ImdbId { get; protected set; }
+    /// <summary>Remote trailer URL (usually YouTube) from the metadata provider.</summary>
+    public string? TrailerUrl { get; protected set; }
     public bool MetadataLocked { get; protected set; }
     public DateTimeOffset AddedAt { get; protected set; }
     public DateTimeOffset UpdatedAt { get; protected set; }
@@ -74,6 +76,8 @@ public abstract class MediaItem
         ImdbId = imdb;
     }
 
+    public void SetTrailerUrl(string? url) => TrailerUrl = url;
+
     /// <summary>
     /// When locked, automatic metadata refresh skips this item; explicit match still applies.
     /// </summary>
@@ -86,6 +90,14 @@ public abstract class MediaItem
     }
 
     public void AddArtwork(Artwork artwork) => _artworks.Add(artwork);
+
+    public void AddPerson(MediaPerson credit)
+    {
+        if (_people.All(p => p.PersonId != credit.PersonId || p.Type != credit.Type))
+            _people.Add(credit);
+    }
+
+    public void ClearPeople() => _people.Clear();
 
     public void RemoveArtworksOfKind(ArtworkKind kind)
     {

@@ -76,6 +76,19 @@ public interface IMediaRepository
     Task<IReadOnlyList<Guid>> ListIdsWithExternalIdsForLibraryAsync(Guid libraryId, CancellationToken ct);
 
     Task<Genre> GetOrCreateGenreAsync(string name, CancellationToken ct);
+
+    /// <summary>Looks up a person by external id (then name), including not-yet-saved local ones.</summary>
+    Task<Person> GetOrCreatePersonAsync(string name, string? tmdbId, string? thumbUrl, CancellationToken ct);
+
+    /// <summary>Deletes all people links of an item (immediate, bypasses the change tracker).</summary>
+    Task RemovePeopleAsync(Guid mediaItemId, CancellationToken ct);
+
+    /// <summary>Explicit INSERT for a people link (composite client-side key, same pattern as artwork).</summary>
+    Task AddMediaPersonAsync(MediaPerson link, CancellationToken ct);
+
+    /// <summary>TRACKED episodes of a series for metadata writes.</summary>
+    Task<IReadOnlyList<Episode>> GetTrackedEpisodesForSeriesAsync(Guid seriesId, CancellationToken ct);
+
     void RemoveArtwork(Artwork artwork);
     /// <summary>
     /// Explicit INSERT — client-generated artwork keys are otherwise misclassified as UPDATE

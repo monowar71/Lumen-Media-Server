@@ -41,6 +41,17 @@ public static class MediaMapper
         };
     }
 
+    private static List<PersonDto> MapPeople(MediaItem item) =>
+        item.People.OrderBy(p => p.SortOrder)
+            .Select(p => new PersonDto
+            {
+                Name = p.Person.Name,
+                Role = p.Role,
+                Type = p.Type.ToString(),
+                Order = p.SortOrder,
+                Thumb = p.Person.ThumbPath,
+            }).ToList();
+
     public static UserDataDto MapUserData(PlaybackProgress? p) => new()
     {
         Watched = p?.Watched ?? false,
@@ -95,15 +106,8 @@ public static class MediaMapper
         CommunityRating = movie.CommunityRating,
         OfficialRating = movie.OfficialRating,
         Genres = movie.Genres.Select(g => g.Name).ToList(),
-        People = movie.People.OrderBy(p => p.SortOrder)
-            .Select(p => new PersonDto
-            {
-                Name = p.Person.Name,
-                Role = p.Role,
-                Type = p.Type.ToString(),
-                Order = p.SortOrder,
-                Thumb = p.Person.ThumbPath,
-            }).ToList(),
+        People = MapPeople(movie),
+        TrailerUrl = movie.TrailerUrl,
         ExternalIds = new ExternalIds { Tmdb = movie.TmdbId, Tvdb = movie.TvdbId, Imdb = movie.ImdbId },
         MetadataLocked = movie.MetadataLocked,
         Artwork = ItemArtwork(movie),
@@ -126,6 +130,8 @@ public static class MediaMapper
         CommunityRating = series.CommunityRating,
         OfficialRating = series.OfficialRating,
         Genres = series.Genres.Select(g => g.Name).ToList(),
+        People = MapPeople(series),
+        TrailerUrl = series.TrailerUrl,
         ExternalIds = new ExternalIds { Tmdb = series.TmdbId, Tvdb = series.TvdbId, Imdb = series.ImdbId },
         MetadataLocked = series.MetadataLocked,
         SeasonCount = seasonCount,
@@ -153,6 +159,7 @@ public static class MediaMapper
         SeasonNumber = e.SeasonNumber,
         EpisodeNumber = e.EpisodeNumber,
         Title = e.Title,
+        Overview = e.Overview,
         AirDate = e.AirDate,
         RuntimeMs = e.RuntimeMs,
         Artwork = new ArtworkUrls { Thumb = ArtworkUrlBuilder.ItemArtwork(e.Id, ArtworkKind.Thumb) },

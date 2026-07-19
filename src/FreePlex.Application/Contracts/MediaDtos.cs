@@ -101,6 +101,8 @@ public sealed record MovieDetail
     public string? OfficialRating { get; init; }
     public IReadOnlyList<string> Genres { get; init; } = [];
     public IReadOnlyList<PersonDto> People { get; init; } = [];
+    /// <summary>Remote trailer URL (usually YouTube), when the metadata provider has one.</summary>
+    public string? TrailerUrl { get; init; }
     public ExternalIds ExternalIds { get; init; } = new();
     public bool MetadataLocked { get; init; }
     public ArtworkUrls Artwork { get; init; } = new();
@@ -130,6 +132,9 @@ public sealed record SeriesDetail
     public double? CommunityRating { get; init; }
     public string? OfficialRating { get; init; }
     public IReadOnlyList<string> Genres { get; init; } = [];
+    public IReadOnlyList<PersonDto> People { get; init; } = [];
+    /// <summary>Remote trailer URL (usually YouTube), when the metadata provider has one.</summary>
+    public string? TrailerUrl { get; init; }
     public ExternalIds ExternalIds { get; init; } = new();
     public bool MetadataLocked { get; init; }
     public int SeasonCount { get; init; }
@@ -182,6 +187,7 @@ public sealed record EpisodeSummary
     public int SeasonNumber { get; init; }
     public int EpisodeNumber { get; init; }
     public string? Title { get; init; }
+    public string? Overview { get; init; }
     public DateOnly? AirDate { get; init; }
     public long? RuntimeMs { get; init; }
     public ArtworkUrls Artwork { get; init; } = new();
