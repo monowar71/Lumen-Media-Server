@@ -343,7 +343,8 @@ public static class FfmpegArgumentBuilder
             || ContainsReason(request.Reason, "ResolutionTooHigh")
             || ContainsReason(request.Reason, "BitrateTooHigh")
             || ContainsReason(request.Reason, "NoVideoStream")
-            || ContainsReason(request.Reason, "SubtitleBurnIn"));
+            || ContainsReason(request.Reason, "SubtitleBurnIn")
+            || ContainsReason(request.Reason, "ManualQuality"));
 
         // Browser MSE is unreliable with AC3/EAC3 in fMP4; always AAC on Transcode.
         // DirectStream keeps audio copy (codecs already accepted by the profile).

@@ -37,6 +37,17 @@ public sealed class PlaybackDecider
 
         var selected = ResolveSelectedQuality(mode, requestedQualityId, availableQualities, method);
 
+        // Manual rungs below Original must always open a transcode session.
+        // Otherwise set-quality to e.g. 360p keeps Method=DirectPlay (codec
+        // matches) and the client keeps streaming the full-quality download URL.
+        if (mode == PlaybackMode.Manual
+            && !string.Equals(selected, "original", StringComparison.OrdinalIgnoreCase)
+            && method != PlaybackMethod.Transcode)
+        {
+            method = PlaybackMethod.Transcode;
+            reason = "ManualQuality";
+        }
+
         return new PlaybackDecisionResult
         {
             Method = method,

@@ -123,4 +123,24 @@ public class PlaybackDeciderTests
         var act = () => _decider.Decide(BuildSource(), Profile(), PlaybackMode.Manual, "99999p", _options);
         act.Should().Throw<FreePlex.Application.Common.UnprocessableException>();
     }
+
+    [Fact]
+    public void Manual_fixed_rung_forces_transcode_even_when_direct_play_possible()
+    {
+        // Source is fully DirectPlay-compatible; user still asked for 360p.
+        var result = _decider.Decide(BuildSource(), Profile(), PlaybackMode.Manual, "360p", _options);
+
+        result.Method.Should().Be(PlaybackMethod.Transcode);
+        result.Reason.Should().Be("ManualQuality");
+        result.SelectedQualityId.Should().Be("360p");
+    }
+
+    [Fact]
+    public void Manual_original_keeps_direct_play_when_compatible()
+    {
+        var result = _decider.Decide(BuildSource(), Profile(), PlaybackMode.Manual, "original", _options);
+
+        result.Method.Should().Be(PlaybackMethod.DirectPlay);
+        result.SelectedQualityId.Should().Be("original");
+    }
 }
