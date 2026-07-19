@@ -35,7 +35,6 @@ public sealed class InMemorySettingsStore : ISettingsStore
             },
             Metadata = new MetadataSettingsDto
             {
-                Providers = ["Tmdb", "Tvdb", "Fanart"],
                 Language = m.Language,
                 FallbackLanguage = m.FallbackLanguage,
             },
@@ -61,7 +60,11 @@ public sealed class InMemorySettingsStore : ISettingsStore
             _current = new ServerSettingsDto
             {
                 Transcoding = patch.Transcoding,
-                Metadata = patch.Metadata,
+                Metadata = new MetadataSettingsDto
+                {
+                    Language = patch.Metadata.Language,
+                    FallbackLanguage = patch.Metadata.FallbackLanguage,
+                },
                 Import = patch.Import,
             };
             return _current;

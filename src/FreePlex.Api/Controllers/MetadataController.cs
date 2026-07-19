@@ -7,13 +7,28 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace FreePlex.Api.Controllers;
 
-/// <summary>Manual metadata matching / refresh. Enqueues a FetchMetadata job.</summary>
+/// <summary>Manual metadata matching, editing, and refresh (admin).</summary>
 [ApiController]
 [Route("api/v1/items")]
 [Authorize(Policy = "Admin")]
-public sealed class MetadataController(IUnitOfWork uow, MetadataJobService metadataJobs) : ControllerBase
+public sealed class MetadataController(
+    IUnitOfWork uow,
+    MetadataJobService metadataJobs,
+    ItemMetadataService itemMetadata) : ControllerBase
 {
     public sealed record MatchRequest(string Provider, string ProviderId);
+
+    [HttpGet("{id:guid}/match-candidates")]
+    [ProducesResponseType<IReadOnlyList<MetadataMatchCandidateDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<MetadataMatchCandidateDto>>> Candidates(
+        Guid id,
+        [FromQuery] string? q,
+        [FromQuery] int? year,
+        CancellationToken ct)
+    {
+        var candidates = await itemMetadata.SearchCandidatesAsync(id, q, year, ct);
+        return Ok(candidates);
+    }
 
     [HttpPost("{id:guid}/match")]
     [ProducesResponseType<JobDto>(StatusCodes.Status202Accepted)]
@@ -33,5 +48,16 @@ public sealed class MetadataController(IUnitOfWork uow, MetadataJobService metad
             ?? throw new NotFoundException("Item not found.");
         var job = await metadataJobs.EnqueueItemAsync(id, provider: null, providerId: null, ct);
         return Accepted(job);
+    }
+
+    [HttpPatch("{id:guid}/metadata")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> UpdateMetadata(
+        Guid id,
+        [FromBody] UpdateItemMetadataRequest request,
+        CancellationToken ct)
+    {
+        await itemMetadata.UpdateAsync(id, request, ct);
+        return NoContent();
     }
 }

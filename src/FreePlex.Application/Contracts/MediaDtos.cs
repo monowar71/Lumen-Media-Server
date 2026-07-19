@@ -102,6 +102,7 @@ public sealed record MovieDetail
     public IReadOnlyList<string> Genres { get; init; } = [];
     public IReadOnlyList<PersonDto> People { get; init; } = [];
     public ExternalIds ExternalIds { get; init; } = new();
+    public bool MetadataLocked { get; init; }
     public ArtworkUrls Artwork { get; init; } = new();
     public IReadOnlyList<MediaSourceDto> MediaSources { get; init; } = [];
     public UserDataDto UserData { get; init; } = new();
@@ -121,6 +122,7 @@ public sealed record SeriesDetail
     public required Guid Id { get; init; }
     public MediaKind Kind => MediaKind.Series;
     public required string Title { get; init; }
+    public string? OriginalTitle { get; init; }
     public int? Year { get; init; }
     public int? EndYear { get; init; }
     public string? Status { get; init; }
@@ -129,12 +131,36 @@ public sealed record SeriesDetail
     public string? OfficialRating { get; init; }
     public IReadOnlyList<string> Genres { get; init; } = [];
     public ExternalIds ExternalIds { get; init; } = new();
+    public bool MetadataLocked { get; init; }
     public int SeasonCount { get; init; }
     public int EpisodeCount { get; init; }
     public ArtworkUrls Artwork { get; init; } = new();
     public SeriesUserData UserData { get; init; } = new();
     public required Guid LibraryId { get; init; }
     public DateTimeOffset AddedAt { get; init; }
+}
+
+/// <summary>Partial update of library-item metadata fields (admin).</summary>
+public sealed record UpdateItemMetadataRequest
+{
+    public string? Title { get; init; }
+    public string? OriginalTitle { get; init; }
+    public int? Year { get; init; }
+    public string? Overview { get; init; }
+    public string? Tagline { get; init; }
+    public double? CommunityRating { get; init; }
+    public string? OfficialRating { get; init; }
+    /// <summary>When null and other fields change, the item is locked automatically.</summary>
+    public bool? MetadataLocked { get; init; }
+}
+
+public sealed record MetadataMatchCandidateDto
+{
+    public required string Provider { get; init; }
+    public required string ProviderId { get; init; }
+    public required string Title { get; init; }
+    public int? Year { get; init; }
+    public double Score { get; init; }
 }
 
 public sealed record SeasonDto

@@ -1279,6 +1279,46 @@
         }
       }
     },
+    "/api/v1/items/{id}/match-candidates": {
+      "get": {
+        "tags": ["Metadata"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": { "type": ["null", "string"] }
+          },
+          {
+            "name": "year",
+            "in": "query",
+            "schema": {
+              "pattern": "^-?(?:0|[1-9]\\d*)$",
+              "type": ["null", "integer", "string"],
+              "format": "int32"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/MetadataMatchCandidateDto" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/items/{id}/match": {
       "post": {
         "tags": [
@@ -1336,6 +1376,30 @@
               }
             }
           }
+        }
+      }
+    },
+    "/api/v1/items/{id}/metadata": {
+      "patch": {
+        "tags": ["Metadata"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/UpdateItemMetadataRequest" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": { "description": "No Content" }
         }
       }
     },
@@ -2830,6 +2894,38 @@
           }
         }
       },
+      "MetadataMatchCandidateDto": {
+        "required": ["provider", "providerId", "title"],
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string" },
+          "providerId": { "type": "string" },
+          "title": { "type": "string" },
+          "year": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": ["null", "integer", "string"],
+            "format": "int32"
+          },
+          "score": { "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$", "type": ["number", "string"], "format": "double" }
+        }
+      },
+      "UpdateItemMetadataRequest": {
+        "type": "object",
+        "properties": {
+          "title": { "type": ["null", "string"] },
+          "originalTitle": { "type": ["null", "string"] },
+          "year": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": ["null", "integer", "string"],
+            "format": "int32"
+          },
+          "overview": { "type": ["null", "string"] },
+          "tagline": { "type": ["null", "string"] },
+          "communityRating": { "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$", "type": ["null", "number", "string"], "format": "double" },
+          "officialRating": { "type": ["null", "string"] },
+          "metadataLocked": { "type": ["null", "boolean"] }
+        }
+      },
       "MediaItemSummary": {
         "required": [
           "id",
@@ -3104,6 +3200,36 @@
           },
           "fallbackLanguage": {
             "type": "string"
+          },
+          "tmdbConfigured": {
+            "type": "boolean"
+          },
+          "tvdbConfigured": {
+            "type": "boolean"
+          },
+          "tvMazeConfigured": {
+            "type": "boolean"
+          },
+          "tmdbApiKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Write-only. Set a new TMDB API key; omitted = unchanged; never returned on GET."
+          },
+          "tvdbApiKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Write-only. Set a new TVDB API key; omitted = unchanged; never returned on GET."
+          },
+          "tvdbPin": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Write-only. TVDB subscriber PIN; omitted = unchanged; never returned on GET."
           }
         }
       },
@@ -3816,6 +3942,9 @@
           },
           "externalIds": {
             "$ref": "#/components/schemas/ExternalIds"
+          },
+          "metadataLocked": {
+            "type": "boolean"
           },
           "seasonCount": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",

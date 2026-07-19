@@ -105,6 +105,7 @@ public static class MediaMapper
                 Thumb = p.Person.ThumbPath,
             }).ToList(),
         ExternalIds = new ExternalIds { Tmdb = movie.TmdbId, Tvdb = movie.TvdbId, Imdb = movie.ImdbId },
+        MetadataLocked = movie.MetadataLocked,
         Artwork = ItemArtwork(movie),
         MediaSources = movie.Sources.Select(s => MapSource(s, includePath)).ToList(),
         UserData = MapUserData(progress),
@@ -117,6 +118,7 @@ public static class MediaMapper
     {
         Id = series.Id,
         Title = series.Title,
+        OriginalTitle = series.OriginalTitle,
         Year = series.Year,
         EndYear = series.EndYear,
         Status = series.Status?.ToString(),
@@ -125,6 +127,7 @@ public static class MediaMapper
         OfficialRating = series.OfficialRating,
         Genres = series.Genres.Select(g => g.Name).ToList(),
         ExternalIds = new ExternalIds { Tmdb = series.TmdbId, Tvdb = series.TvdbId, Imdb = series.ImdbId },
+        MetadataLocked = series.MetadataLocked,
         SeasonCount = seasonCount,
         EpisodeCount = episodeCount,
         Artwork = ItemArtwork(series),

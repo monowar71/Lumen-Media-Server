@@ -50,10 +50,12 @@ public static class DependencyInjection
         services.AddSingleton<ITranscoder, FfmpegTranscoder>();
         services.AddSingleton<ISubtitleConverter, FfmpegSubtitleConverter>();
         services.AddSingleton<ISettingsStore, InMemorySettingsStore>();
+        services.AddSingleton<IMetadataSecretsStore, FileMetadataSecretsStore>();
         services.AddSingleton<IMetadataLanguageSource, SettingsMetadataLanguageSource>();
         services.AddSingleton<IRemoteImageFetcher, HttpRemoteImageFetcher>();
         services.AddSingleton<IMetadataProvider, TmdbMetadataProvider>();
         services.AddSingleton<IMetadataProvider, TvMazeMetadataProvider>();
+        services.AddSingleton<IMetadataProvider, TvdbMetadataProvider>();
         services.AddScoped<IMetadataEnricher, MetadataEnricher>();
 
         services.AddHttpClient("Tmdb", client =>
@@ -70,6 +72,12 @@ public static class DependencyInjection
         services.AddHttpClient("TvMaze", client =>
         {
             client.BaseAddress = new Uri("https://api.tvmaze.com/");
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("FreePlex/0.1");
+        });
+        services.AddHttpClient("Tvdb", client =>
+        {
+            client.BaseAddress = new Uri("https://api4.thetvdb.com/v4/");
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("FreePlex/0.1");
         });

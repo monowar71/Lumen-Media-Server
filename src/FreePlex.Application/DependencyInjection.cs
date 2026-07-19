@@ -26,6 +26,7 @@ public static class DependencyInjection
         services.AddScoped<JobService>();
         services.AddScoped<SettingsService>();
         services.AddScoped<MetadataJobService>();
+        services.AddScoped<ItemMetadataService>();
 
         return services;
     }

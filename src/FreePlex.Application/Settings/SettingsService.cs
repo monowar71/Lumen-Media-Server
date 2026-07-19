@@ -4,14 +4,39 @@ using FreePlex.Application.Metadata;
 
 namespace FreePlex.Application.Settings;
 
-public sealed class SettingsService(ISettingsStore store, MetadataJobService metadataJobs)
+public sealed class SettingsService(
+    ISettingsStore store,
+    IMetadataSecretsStore secrets,
+    MetadataJobService metadataJobs)
 {
-    public ServerSettingsDto Get() => store.Get();
+    public ServerSettingsDto Get() => Project(store.Get());
 
     public async Task<ServerSettingsDto> UpdateAsync(ServerSettingsDto patch, CancellationToken ct)
     {
         var previous = store.Get();
-        var updated = store.Update(patch);
+
+        // Apply write-only API keys before projecting (empty string clears).
+        if (patch.Metadata.TmdbApiKey is not null
+            || patch.Metadata.TvdbApiKey is not null
+            || patch.Metadata.TvdbPin is not null)
+        {
+            secrets.Update(
+                patch.Metadata.TmdbApiKey,
+                patch.Metadata.TvdbApiKey,
+                patch.Metadata.TvdbPin);
+        }
+
+        var sanitized = patch with
+        {
+            Metadata = patch.Metadata with
+            {
+                TmdbApiKey = null,
+                TvdbApiKey = null,
+                TvdbPin = null,
+            },
+        };
+
+        var updated = store.Update(sanitized);
 
         var languageChanged = !string.Equals(
                                   previous.Metadata.Language,
@@ -25,6 +50,30 @@ public sealed class SettingsService(ISettingsStore store, MetadataJobService met
         if (languageChanged)
             await metadataJobs.EnqueueRefreshAllAsync(ct);
 
-        return updated;
+        return Project(updated);
+    }
+
+    private ServerSettingsDto Project(ServerSettingsDto raw)
+    {
+        var providers = new List<string>();
+        if (secrets.TmdbConfigured)
+            providers.Add("Tmdb");
+        providers.Add("TvMaze");
+        if (secrets.TvdbConfigured)
+            providers.Add("Tvdb");
+
+        return raw with
+        {
+            Metadata = raw.Metadata with
+            {
+                Providers = providers,
+                TmdbConfigured = secrets.TmdbConfigured,
+                TvdbConfigured = secrets.TvdbConfigured,
+                TvMazeConfigured = true,
+                TmdbApiKey = null,
+                TvdbApiKey = null,
+                TvdbPin = null,
+            },
+        };
     }
 }

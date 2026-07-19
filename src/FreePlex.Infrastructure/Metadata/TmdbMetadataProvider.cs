@@ -4,16 +4,14 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using FreePlex.Application.Abstractions;
 using FreePlex.Domain.Enums;
-using FreePlex.Infrastructure.Configuration;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 
 namespace FreePlex.Infrastructure.Metadata;
 
 /// <summary>TMDB v3 metadata provider (search + details + image URLs).</summary>
 public sealed class TmdbMetadataProvider(
     IHttpClientFactory httpClientFactory,
-    IOptions<MetadataOptions> options,
+    IMetadataSecretsStore secrets,
     ILogger<TmdbMetadataProvider> logger) : IMetadataProvider
 {
     public const string ProviderName = "Tmdb";
@@ -25,7 +23,7 @@ public sealed class TmdbMetadataProvider(
 
     public string Name => ProviderName;
 
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(options.Value.Tmdb.ApiKey);
+    public bool IsConfigured => secrets.TmdbConfigured;
 
     public async Task<IReadOnlyList<MetadataMatch>> SearchAsync(
         string title,
@@ -134,7 +132,9 @@ public sealed class TmdbMetadataProvider(
 
     private async Task<T?> GetAsync<T>(HttpClient client, string path, Dictionary<string, string?> query, CancellationToken ct)
     {
-        var apiKey = options.Value.Tmdb.ApiKey;
+        var apiKey = secrets.TmdbApiKey;
+        if (string.IsNullOrWhiteSpace(apiKey))
+            return default;
         query["api_key"] = apiKey;
 
         var qs = string.Join("&", query

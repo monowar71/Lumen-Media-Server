@@ -74,6 +74,11 @@ public abstract class MediaItem
         ImdbId = imdb;
     }
 
+    /// <summary>
+    /// When locked, automatic metadata refresh skips this item; explicit match still applies.
+    /// </summary>
+    public void SetMetadataLocked(bool locked) => MetadataLocked = locked;
+
     public void AddGenre(Genre genre)
     {
         if (_genres.All(g => g.Id != genre.Id && !g.Name.Equals(genre.Name, StringComparison.OrdinalIgnoreCase)))

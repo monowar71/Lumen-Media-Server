@@ -67,6 +67,9 @@ public sealed class MetadataEnricher(
         }
 
         ApplyDetails(item, details);
+        // Explicit rematch replaces locked manual edits; unlock so future refresh works.
+        if (!string.IsNullOrWhiteSpace(providerId))
+            item.SetMetadataLocked(false);
         item.Touch(clock.GetUtcNow());
         await uow.SaveChangesAsync(ct);
 
@@ -107,11 +110,22 @@ public sealed class MetadataEnricher(
 
         if (!string.IsNullOrWhiteSpace(item.TvdbId))
         {
+            var tvdb = providers.FirstOrDefault(p =>
+                p.Name.Equals(TvdbMetadataProvider.ProviderName, StringComparison.OrdinalIgnoreCase) && p.IsConfigured);
+            if (tvdb is not null)
+            {
+                var existing = await tvdb.GetDetailsAsync(item.TvdbId, item.Kind, language, ct);
+                if (existing is not null)
+                    return existing;
+            }
+
             var tvmaze = providers.FirstOrDefault(p =>
                 p.Name.Equals(TvMazeMetadataProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
-            var existing = tvmaze is null ? null : await tvmaze.GetDetailsAsync(item.TvdbId, item.Kind, language, ct);
-            if (existing is not null)
-                return existing;
+            var existingMaze = tvmaze is null
+                ? null
+                : await tvmaze.GetDetailsAsync(item.TvdbId, item.Kind, language, ct);
+            if (existingMaze is not null)
+                return existingMaze;
         }
 
         MetadataMatch? best = null;
@@ -154,8 +168,10 @@ public sealed class MetadataEnricher(
 
         if (details.Provider.Equals(TmdbMetadataProvider.ProviderName, StringComparison.OrdinalIgnoreCase))
             item.SetExternalIds(details.ProviderId, item.TvdbId, details.ImdbId ?? item.ImdbId);
+        else if (details.Provider.Equals(TvdbMetadataProvider.ProviderName, StringComparison.OrdinalIgnoreCase))
+            item.SetExternalIds(item.TmdbId, details.ProviderId, details.ImdbId ?? item.ImdbId);
         else
-            // Non-TMDB providers (e.g. TVMaze) reuse TvdbId slot until a dedicated column exists.
+            // TVMaze (and similar) reuse TvdbId slot until a dedicated column exists.
             item.SetExternalIds(item.TmdbId, details.ProviderId, details.ImdbId ?? item.ImdbId);
 
         if (item is Movie movie)
