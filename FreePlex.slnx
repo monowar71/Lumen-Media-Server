@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FreePlex.Api/FreePlex.Api.csproj" />
+    <Project Path="src/FreePlex.Application/FreePlex.Application.csproj" />
+    <Project Path="src/FreePlex.Domain/FreePlex.Domain.csproj" />
+    <Project Path="src/FreePlex.Infrastructure/FreePlex.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FreePlex.Api.IntegrationTests/FreePlex.Api.IntegrationTests.csproj" />
+    <Project Path="tests/FreePlex.Application.Tests/FreePlex.Application.Tests.csproj" />
+    <Project Path="tests/FreePlex.Domain.Tests/FreePlex.Domain.Tests.csproj" />
+  </Folder>
+</Solution>

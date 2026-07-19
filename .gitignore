@@ -1,0 +1,35 @@
+## Build
+**/bin/
+**/obj/
+**/out/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+*.DotSettings.user
+
+## IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+## Test / coverage
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+## Local secrets / runtime (never commit)
+appsettings.*.local.json
+**/secrets.json
+*.db
+*.db-shm
+*.db-wal
+
+## NuGet
+**/packages/
+*.nupkg
+project.lock.json
