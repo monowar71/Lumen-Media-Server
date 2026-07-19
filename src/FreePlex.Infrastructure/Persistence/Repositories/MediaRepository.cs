@@ -171,6 +171,13 @@ public sealed class MediaRepository(FreePlexDbContext db) : IMediaRepository
             .Select(m => m.Id)
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<Guid>> ListIdsForLibraryAsync(Guid libraryId, CancellationToken ct) =>
+        await db.MediaItems.AsNoTracking()
+            .Where(m => m.LibraryId == libraryId)
+            .OrderBy(m => m.SortTitle)
+            .Select(m => m.Id)
+            .ToListAsync(ct);
+
     public async Task<IReadOnlyList<Guid>> ListIdsWithExternalIdsAsync(CancellationToken ct) =>
         await db.MediaItems.AsNoTracking()
             .Where(m => m.TmdbId != null || m.TvdbId != null)

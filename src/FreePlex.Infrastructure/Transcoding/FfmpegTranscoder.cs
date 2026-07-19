@@ -349,6 +349,16 @@ public static class FfmpegArgumentBuilder
         // DirectStream keeps audio copy (codecs already accepted by the profile).
         var encodeAudio = method != PlaybackMethod.DirectStream;
 
+        // Burn-in (bitmap overlay) stays on software encode — VAAPI + overlay is fragile.
+        int? burnInIndex = request.SubtitleBurnInIndex is int idx && idx >= 0 ? idx : null;
+        var burnIn = burnInIndex is not null;
+        if (burnIn)
+            encodeVideo = true;
+
+        var useVaapi = encodeVideo
+                       && !burnIn
+                       && opts.HardwareAccel.Equals("vaapi", StringComparison.OrdinalIgnoreCase);
+
         var args = new List<string>
         {
             "-hide_banner",
@@ -359,6 +369,17 @@ public static class FfmpegArgumentBuilder
             "-analyzeduration", "1000000",
         };
 
+        if (useVaapi)
+        {
+            var device = string.IsNullOrWhiteSpace(opts.VaapiDevice)
+                ? "/dev/dri/renderD128"
+                : opts.VaapiDevice;
+            args.Add("-init_hw_device");
+            args.Add($"vaapi=va:{device}");
+            args.Add("-filter_hw_device");
+            args.Add("va");
+        }
+
         if (request.StartPositionMs > 0)
         {
             args.Add("-ss");
@@ -367,8 +388,6 @@ public static class FfmpegArgumentBuilder
 
         args.Add("-i");
         args.Add(request.Session.SourcePath);
-
-        int? burnInIndex = request.SubtitleBurnInIndex is int idx && idx >= 0 ? idx : null;
 
         if (burnInIndex is int burnIdx)
         {
@@ -395,51 +414,66 @@ public static class FfmpegArgumentBuilder
             args.Add("0:a:0?");
         }
 
-        // Burn-in requires encoding the composited video.
-        var burnIn = burnInIndex is not null;
-        if (burnIn)
-            encodeVideo = true;
-
         if (encodeVideo)
         {
-            var encoder = SelectVideoEncoder(opts.HardwareAccel);
+            var encoder = useVaapi ? "h264_vaapi" : SelectVideoEncoder(opts.HardwareAccel);
             args.Add("-c:v");
             args.Add(encoder);
-            args.Add("-preset");
-            args.Add("veryfast");
-            if (encoder == "libx264")
-            {
-                args.Add("-tune");
-                args.Add("zerolatency");
-            }
 
-            args.Add("-pix_fmt");
-            args.Add("yuv420p");
-            if (downscale && rung is not null && !burnIn)
+            if (useVaapi)
             {
+                // Upload to VAAPI surface; optional HW scale. Bitrate (not CRF) for vaapi.
+                var vf = downscale && rung is not null
+                    ? $"format=nv12,hwupload,scale_vaapi=-2:{rung.Height}"
+                    : "format=nv12,hwupload";
                 args.Add("-vf");
-                args.Add($"scale=-2:{rung.Height}");
+                args.Add(vf);
+                var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 8000;
                 args.Add("-b:v");
-                args.Add($"{rung.VideoBitrateKbps}k");
+                args.Add($"{kbps}k");
                 args.Add("-maxrate");
-                args.Add($"{rung.VideoBitrateKbps}k");
+                args.Add($"{kbps}k");
                 args.Add("-bufsize");
-                args.Add($"{rung.VideoBitrateKbps * 2}k");
-            }
-            else if (downscale && rung is not null && burnIn)
-            {
-                // scale cannot be combined with filter_complex overlay easily — bitrate-cap only.
-                args.Add("-b:v");
-                args.Add($"{rung.VideoBitrateKbps}k");
-                args.Add("-maxrate");
-                args.Add($"{rung.VideoBitrateKbps}k");
-                args.Add("-bufsize");
-                args.Add($"{rung.VideoBitrateKbps * 2}k");
+                args.Add($"{kbps * 2}k");
             }
             else
             {
-                args.Add("-crf");
-                args.Add("20");
+                args.Add("-preset");
+                args.Add("veryfast");
+                if (encoder == "libx264")
+                {
+                    args.Add("-tune");
+                    args.Add("zerolatency");
+                }
+
+                args.Add("-pix_fmt");
+                args.Add("yuv420p");
+                if (downscale && rung is not null && !burnIn)
+                {
+                    args.Add("-vf");
+                    args.Add($"scale=-2:{rung.Height}");
+                    args.Add("-b:v");
+                    args.Add($"{rung.VideoBitrateKbps}k");
+                    args.Add("-maxrate");
+                    args.Add($"{rung.VideoBitrateKbps}k");
+                    args.Add("-bufsize");
+                    args.Add($"{rung.VideoBitrateKbps * 2}k");
+                }
+                else if (downscale && rung is not null && burnIn)
+                {
+                    // scale cannot be combined with filter_complex overlay easily — bitrate-cap only.
+                    args.Add("-b:v");
+                    args.Add($"{rung.VideoBitrateKbps}k");
+                    args.Add("-maxrate");
+                    args.Add($"{rung.VideoBitrateKbps}k");
+                    args.Add("-bufsize");
+                    args.Add($"{rung.VideoBitrateKbps * 2}k");
+                }
+                else
+                {
+                    args.Add("-crf");
+                    args.Add("20");
+                }
             }
         }
         else

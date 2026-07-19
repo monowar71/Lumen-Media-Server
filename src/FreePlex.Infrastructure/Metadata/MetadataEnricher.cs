@@ -143,7 +143,8 @@ public sealed class MetadataEnricher(
             }
         }
 
-        if (best is null || bestProvider is null || best.Score < 0.55)
+        // 0.70 rejects weak substring-only hits; exact/original_title matches clear it easily.
+        if (best is null || bestProvider is null || best.Score < 0.70)
             return null;
 
         return await bestProvider.GetDetailsAsync(best.ProviderId, item.Kind, language, ct);

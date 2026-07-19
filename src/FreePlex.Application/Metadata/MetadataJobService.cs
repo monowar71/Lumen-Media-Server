@@ -38,6 +38,22 @@ public sealed class MetadataJobService(IUnitOfWork uow, IJobQueue jobQueue, Time
             await EnqueueItemAsync(id, provider: null, providerId: null, ct);
     }
 
+    /// <summary>Enqueue FetchMetadata for a library according to <paramref name="mode"/>.</summary>
+    public async Task<int> EnqueueForLibraryAsync(Guid libraryId, MetadataRefreshMode mode, CancellationToken ct)
+    {
+        var ids = mode switch
+        {
+            MetadataRefreshMode.Matched => await uow.Media.ListIdsWithExternalIdsForLibraryAsync(libraryId, ct),
+            MetadataRefreshMode.All => await uow.Media.ListIdsForLibraryAsync(libraryId, ct),
+            _ => await uow.Media.ListIdsMissingMetadataAsync(libraryId, ct),
+        };
+
+        foreach (var id in ids)
+            await EnqueueItemAsync(id, provider: null, providerId: null, ct);
+
+        return ids.Count;
+    }
+
     /// <summary>Re-fetch metadata for every item that already has an external id (language change).</summary>
     public async Task EnqueueRefreshAllAsync(CancellationToken ct)
     {

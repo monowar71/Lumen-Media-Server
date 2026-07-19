@@ -6,3 +6,6 @@
 **/TestResults/
 tests/
 *.md
+**/._*
+.DS_Store
+**/.DS_Store

@@ -14,11 +14,12 @@ RUN dotnet publish src/FreePlex.Api/FreePlex.Api.csproj -c Release -o /app --no-
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# ffmpeg с аппаратными кодеками (VAAPI/QSV/NVENC).
-# Для лучшей поддержки HW рекомендуется собрать/подложить jellyfin-ffmpeg
-# вместо дистрибутивного пакета. Здесь — базовый вариант:
+# ffmpeg + Intel VAAPI user-space driver (iHD). Host still needs /dev/dri + i915.
+# non-free iHD package is required for Alder Lake-N / newer Intel GPUs.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
+    && apt-get install -y --no-install-recommends \
+        ffmpeg curl vainfo \
+        intel-media-va-driver-non-free \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app ./
@@ -28,10 +29,11 @@ EXPOSE 8096
 
 ENV ASPNETCORE_URLS=http://+:8096 \
     FREEPLEX__Paths__Config=/config \
-    FREEPLEX__Paths__Downloads=/downloads
+    FREEPLEX__Paths__Downloads=/downloads \
+    LIBVA_DRIVER_NAME=iHD
 
 # HEALTHCHECK — эндпоинт /health появляется в фазе P0.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
-    CMD wget -qO- http://localhost:8096/health || exit 1
+    CMD curl -fsS http://localhost:8096/health || exit 1
 
 ENTRYPOINT ["dotnet", "FreePlex.Api.dll"]

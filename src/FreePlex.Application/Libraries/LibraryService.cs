@@ -116,6 +116,35 @@ public sealed class LibraryService(
         return JobMapper.Map(job);
     }
 
+    /// <summary>
+    /// Optionally updates preferred language, then enqueues FetchMetadata jobs for the library.
+    /// Language change here does not trigger a separate matched-only refresh (avoids double enqueue).
+    /// </summary>
+    public async Task<LibraryMetadataRefreshAccepted> RefreshMetadataAsync(
+        Guid id,
+        RefreshLibraryMetadataRequest request,
+        CancellationToken ct)
+    {
+        var lib = await uow.Libraries.GetByIdAsync(id, ct)
+                  ?? throw new NotFoundException("Library not found.");
+
+        if (!string.IsNullOrWhiteSpace(request.PreferredLanguage)
+            && !string.Equals(lib.PreferredLanguage, request.PreferredLanguage.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            lib.Update(name: null, preferredLanguage: request.PreferredLanguage.Trim(), metadataProviders: null, autoScan: null);
+            await uow.SaveChangesAsync(ct);
+        }
+
+        var enqueued = await metadataJobs.EnqueueForLibraryAsync(lib.Id, request.Mode, ct);
+        return new LibraryMetadataRefreshAccepted
+        {
+            LibraryId = lib.Id,
+            Mode = request.Mode,
+            EnqueuedCount = enqueued,
+            PreferredLanguage = lib.PreferredLanguage,
+        };
+    }
+
     private async Task<Library> GetAccessibleAsync(Guid id, Caller caller, CancellationToken ct)
     {
         var lib = await uow.Libraries.GetByIdAsync(id, ct)

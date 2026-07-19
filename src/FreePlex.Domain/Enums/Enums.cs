@@ -57,6 +57,19 @@ public enum JobType
     CleanupTranscodes
 }
 
+/// <summary>Scope for admin-triggered library-wide metadata enrichment.</summary>
+public enum MetadataRefreshMode
+{
+    /// <summary>Items without overview or TMDB id (same set as post-scan enqueue).</summary>
+    Missing,
+
+    /// <summary>Items that already have TMDB/TVDB ids (re-fetch / language refresh).</summary>
+    Matched,
+
+    /// <summary>Every movie/series in the library.</summary>
+    All
+}
+
 public enum JobState
 {
     Queued,

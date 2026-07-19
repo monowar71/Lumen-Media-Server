@@ -59,9 +59,21 @@ public sealed class TmdbMetadataProvider(
             .Select(r =>
             {
                 var resultTitle = kind == MediaKind.Movie ? r.Title : r.Name;
+                var originalTitle = kind == MediaKind.Movie ? r.OriginalTitle : r.OriginalName;
                 var resultYear = ParseYear(kind == MediaKind.Movie ? r.ReleaseDate : r.FirstAirDate);
-                var score = Score(title, year, resultTitle ?? string.Empty, resultYear, r.Popularity);
-                return new MetadataMatch(ProviderName, r.Id.ToString(CultureInfo.InvariantCulture), resultTitle ?? title, resultYear, score);
+                var score = Score(
+                    title,
+                    year,
+                    resultTitle ?? string.Empty,
+                    resultYear,
+                    r.Popularity,
+                    originalTitle);
+                return new MetadataMatch(
+                    ProviderName,
+                    r.Id.ToString(CultureInfo.InvariantCulture),
+                    resultTitle ?? title,
+                    resultYear,
+                    score);
             })
             .OrderByDescending(m => m.Score)
             .Take(10)
@@ -170,30 +182,59 @@ public sealed class TmdbMetadataProvider(
         return int.TryParse(date.AsSpan(0, 4), out var y) ? y : null;
     }
 
-    public static double Score(string queryTitle, int? queryYear, string candidateTitle, int? candidateYear, double? popularity)
+    /// <summary>
+    /// Scores a TMDB candidate against the library title. Uses the better of localized
+    /// vs original title so EN filenames still match when the UI language is ru-RU.
+    /// Popularity breaks ties so obscure same-name entries lose to the known title.
+    /// </summary>
+    public static double Score(
+        string queryTitle,
+        int? queryYear,
+        string candidateTitle,
+        int? candidateYear,
+        double? popularity,
+        string? originalTitle = null)
     {
-        var q = Normalize(queryTitle);
-        var c = Normalize(candidateTitle);
-        double score;
-        if (q.Equals(c, StringComparison.Ordinal))
-            score = 1.0;
-        else if (c.StartsWith(q, StringComparison.Ordinal) || q.StartsWith(c, StringComparison.Ordinal))
-            score = 0.85;
-        else if (c.Contains(q, StringComparison.Ordinal) || q.Contains(c, StringComparison.Ordinal))
-            score = 0.65;
-        else
-            score = 0.2;
+        var titleScore = TitleSimilarity(queryTitle, candidateTitle);
+        if (!string.IsNullOrWhiteSpace(originalTitle))
+            titleScore = Math.Max(titleScore, TitleSimilarity(queryTitle, originalTitle));
+
+        var score = titleScore;
 
         if (queryYear is not null && candidateYear is not null)
         {
             var delta = Math.Abs(queryYear.Value - candidateYear.Value);
-            score += delta == 0 ? 0.15 : delta == 1 ? 0.05 : -0.1;
+            score += delta == 0 ? 0.15 : delta == 1 ? 0.05 : -0.15;
         }
 
+        // log-ish boost: popularity 5 ≈ +0.04, 50 ≈ +0.13, 500 ≈ +0.22 (cap 0.25)
         if (popularity is > 0)
-            score += Math.Min(0.05, popularity.Value / 2000.0);
+            score += Math.Min(0.25, Math.Log10(popularity.Value + 1.0) * 0.1);
 
-        return Math.Clamp(score, 0, 1.15);
+        return Math.Clamp(score, 0, 1.4);
+    }
+
+    private static double TitleSimilarity(string queryTitle, string candidateTitle)
+    {
+        var q = Normalize(queryTitle);
+        var c = Normalize(candidateTitle);
+        if (q.Length == 0 || c.Length == 0)
+            return 0;
+
+        if (q.Equals(c, StringComparison.Ordinal))
+            return 1.0;
+
+        // Prefix with extra words (fan edits / "Title (Something)") — weaker than exact.
+        if (c.StartsWith(q + " ", StringComparison.Ordinal) || q.StartsWith(c + " ", StringComparison.Ordinal))
+            return 0.72;
+
+        if (c.StartsWith(q, StringComparison.Ordinal) || q.StartsWith(c, StringComparison.Ordinal))
+            return 0.8;
+
+        if (c.Contains(q, StringComparison.Ordinal) || q.Contains(c, StringComparison.Ordinal))
+            return 0.5;
+
+        return 0.1;
     }
 
     private static string Normalize(string value) =>
@@ -210,6 +251,8 @@ public sealed class TmdbMetadataProvider(
         int Id,
         string? Title,
         string? Name,
+        [property: JsonPropertyName("original_title")] string? OriginalTitle,
+        [property: JsonPropertyName("original_name")] string? OriginalName,
         [property: JsonPropertyName("release_date")] string? ReleaseDate,
         [property: JsonPropertyName("first_air_date")] string? FirstAirDate,
         double? Popularity);

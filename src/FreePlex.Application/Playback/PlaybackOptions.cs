@@ -13,6 +13,8 @@ public sealed class PlaybackOptions
     public const string SectionName = "FreePlex:Transcoding";
 
     public string HardwareAccel { get; set; } = "auto";
+    /// <summary>VAAPI render node (Linux). Used when <see cref="HardwareAccel"/> is vaapi.</summary>
+    public string VaapiDevice { get; set; } = "/dev/dri/renderD128";
     public int MaxConcurrentSessions { get; set; } = 3;
     /// <summary>Steady-state HLS segment length. First segment uses <see cref="InitialSegmentDurationSec"/>.</summary>
     public int SegmentDurationSec { get; set; } = 2;

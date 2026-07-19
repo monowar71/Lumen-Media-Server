@@ -52,6 +52,22 @@ public sealed class LibrariesController(LibraryService libraries, MediaQueryServ
         return Accepted(job);
     }
 
+    /// <summary>
+    /// Enqueue metadata enrichment for items in the library.
+    /// Optional body: mode (Missing|Matched|All) and preferredLanguage.
+    /// </summary>
+    [HttpPost("{id:guid}/refresh-metadata")]
+    [Authorize(Policy = "Admin")]
+    [ProducesResponseType<LibraryMetadataRefreshAccepted>(StatusCodes.Status202Accepted)]
+    public async Task<ActionResult<LibraryMetadataRefreshAccepted>> RefreshMetadata(
+        Guid id,
+        [FromBody] RefreshLibraryMetadataRequest? request,
+        CancellationToken ct)
+    {
+        var result = await libraries.RefreshMetadataAsync(id, request ?? new RefreshLibraryMetadataRequest(), ct);
+        return Accepted(result);
+    }
+
     [HttpGet("{id:guid}/items")]
     public async Task<ActionResult<PagedResult<MediaItemSummary>>> Items(
         Guid id,

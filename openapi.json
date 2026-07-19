@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:8096/"
+      "url": "http://127.0.0.1:5099/"
     }
   ],
   "paths": {
@@ -866,6 +866,86 @@
         }
       }
     },
+    "/api/v1/libraries/{id}/refresh-metadata": {
+      "post": {
+        "tags": [
+          "Libraries"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RefreshLibraryMetadataRequest"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RefreshLibraryMetadataRequest"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RefreshLibraryMetadataRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryMetadataRefreshAccepted"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryMetadataRefreshAccepted"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryMetadataRefreshAccepted"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/libraries/{id}/items": {
       "get": {
         "tags": [
@@ -1281,25 +1361,35 @@
     },
     "/api/v1/items/{id}/match-candidates": {
       "get": {
-        "tags": ["Metadata"],
+        "tags": [
+          "Metadata"
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "q",
             "in": "query",
-            "schema": { "type": ["null", "string"] }
+            "schema": {
+              "type": "string"
+            }
           },
           {
             "name": "year",
             "in": "query",
             "schema": {
               "pattern": "^-?(?:0|[1-9]\\d*)$",
-              "type": ["null", "integer", "string"],
+              "type": [
+                "integer",
+                "string"
+              ],
               "format": "int32"
             }
           }
@@ -1308,10 +1398,28 @@
           "200": {
             "description": "OK",
             "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MetadataMatchCandidateDto"
+                  }
+                }
+              },
               "application/json": {
                 "schema": {
                   "type": "array",
-                  "items": { "$ref": "#/components/schemas/MetadataMatchCandidateDto" }
+                  "items": {
+                    "$ref": "#/components/schemas/MetadataMatchCandidateDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MetadataMatchCandidateDto"
+                  }
                 }
               }
             }
@@ -1379,30 +1487,6 @@
         }
       }
     },
-    "/api/v1/items/{id}/metadata": {
-      "patch": {
-        "tags": ["Metadata"],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": { "type": "string", "format": "uuid" }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": { "$ref": "#/components/schemas/UpdateItemMetadataRequest" }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": { "description": "No Content" }
-        }
-      }
-    },
     "/api/v1/items/{id}/refresh-metadata": {
       "post": {
         "tags": [
@@ -1439,6 +1523,49 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{id}/metadata": {
+      "patch": {
+        "tags": [
+          "Metadata"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateItemMetadataRequest"
+              }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateItemMetadataRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateItemMetadataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
           }
         }
       }
@@ -2817,6 +2944,37 @@
           }
         }
       },
+      "LibraryMetadataRefreshAccepted": {
+        "required": [
+          "libraryId",
+          "mode",
+          "enqueuedCount"
+        ],
+        "type": "object",
+        "properties": {
+          "libraryId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/MetadataRefreshMode"
+          },
+          "enqueuedCount": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "preferredLanguage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "LibrarySettingsDto": {
         "type": "object",
         "properties": {
@@ -2892,38 +3050,6 @@
           "providerId": {
             "type": "string"
           }
-        }
-      },
-      "MetadataMatchCandidateDto": {
-        "required": ["provider", "providerId", "title"],
-        "type": "object",
-        "properties": {
-          "provider": { "type": "string" },
-          "providerId": { "type": "string" },
-          "title": { "type": "string" },
-          "year": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": ["null", "integer", "string"],
-            "format": "int32"
-          },
-          "score": { "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$", "type": ["number", "string"], "format": "double" }
-        }
-      },
-      "UpdateItemMetadataRequest": {
-        "type": "object",
-        "properties": {
-          "title": { "type": ["null", "string"] },
-          "originalTitle": { "type": ["null", "string"] },
-          "year": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": ["null", "integer", "string"],
-            "format": "int32"
-          },
-          "overview": { "type": ["null", "string"] },
-          "tagline": { "type": ["null", "string"] },
-          "communityRating": { "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$", "type": ["null", "number", "string"], "format": "double" },
-          "officialRating": { "type": ["null", "string"] },
-          "metadataLocked": { "type": ["null", "boolean"] }
         }
       },
       "MediaItemSummary": {
@@ -3186,6 +3312,50 @@
           }
         }
       },
+      "MetadataMatchCandidateDto": {
+        "required": [
+          "provider",
+          "providerId",
+          "title"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "year": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "score": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "MetadataRefreshMode": {
+        "enum": [
+          "Missing",
+          "Matched",
+          "All"
+        ],
+        "type": "string"
+      },
       "MetadataSettingsDto": {
         "type": "object",
         "properties": {
@@ -3214,22 +3384,19 @@
             "type": [
               "null",
               "string"
-            ],
-            "description": "Write-only. Set a new TMDB API key; omitted = unchanged; never returned on GET."
+            ]
           },
           "tvdbApiKey": {
             "type": [
               "null",
               "string"
-            ],
-            "description": "Write-only. Set a new TVDB API key; omitted = unchanged; never returned on GET."
+            ]
           },
           "tvdbPin": {
             "type": [
               "null",
               "string"
-            ],
-            "description": "Write-only. TVDB subscriber PIN; omitted = unchanged; never returned on GET."
+            ]
           }
         }
       },
@@ -3762,6 +3929,20 @@
           }
         }
       },
+      "RefreshLibraryMetadataRequest": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/MetadataRefreshMode"
+          },
+          "preferredLanguage": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
       "RefreshRequest": {
         "required": [
           "refreshToken"
@@ -3888,6 +4069,12 @@
           },
           "title": {
             "type": "string"
+          },
+          "originalTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "year": {
             "pattern": "^-?(?:0|[1-9]\\d*)$",
@@ -4229,6 +4416,65 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "UpdateItemMetadataRequest": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "originalTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "year": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "overview": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "tagline": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "communityRating": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          },
+          "officialRating": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "metadataLocked": {
+            "type": [
+              "null",
+              "boolean"
+            ]
           }
         }
       },

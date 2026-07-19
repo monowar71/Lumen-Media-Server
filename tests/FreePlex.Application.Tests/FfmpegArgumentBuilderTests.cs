@@ -90,6 +90,43 @@ public class FfmpegArgumentBuilderTests
     }
 
     [Fact]
+    public void Vaapi_transcode_uses_hwupload_and_scale_vaapi()
+    {
+        var opts = new PlaybackOptions
+        {
+            HardwareAccel = "vaapi",
+            VaapiDevice = "/dev/dri/renderD128",
+        };
+        var args = FfmpegArgumentBuilder.Build(
+            Request(PlaybackMethod.Transcode, "720p", "BitrateTooHigh"),
+            "/tmp/out",
+            opts);
+
+        args.Should().ContainInOrder("-init_hw_device", "vaapi=va:/dev/dri/renderD128");
+        args.Should().ContainInOrder("-filter_hw_device", "va");
+        args.Should().ContainInOrder("-c:v", "h264_vaapi");
+        args.Should().ContainInOrder("-vf", "format=nv12,hwupload,scale_vaapi=-2:720");
+        args.Should().NotContain("libx264");
+        args.Should().NotContain("-preset");
+        args.Should().NotContain("yuv420p");
+    }
+
+    [Fact]
+    public void Vaapi_burn_in_falls_back_to_software()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "vaapi" };
+        var request = Request(PlaybackMethod.Transcode, "720p", "SubtitleBurnIn") with
+        {
+            SubtitleBurnInIndex = 3,
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", opts);
+
+        args.Should().ContainInOrder("-c:v", "libx264");
+        args.Should().NotContain("h264_vaapi");
+        args.Should().NotContain("-init_hw_device");
+    }
+
+    [Fact]
     public void Seek_adds_ss_before_input()
     {
         var args = FfmpegArgumentBuilder.Build(

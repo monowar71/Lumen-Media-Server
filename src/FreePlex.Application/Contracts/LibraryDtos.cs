@@ -34,3 +34,23 @@ public sealed record UpdateLibraryRequest
     public IReadOnlyList<string>? Paths { get; init; }
     public LibrarySettingsDto? Settings { get; init; }
 }
+
+public sealed record RefreshLibraryMetadataRequest
+{
+    /// <summary>Which items to enqueue. Default: Missing.</summary>
+    public MetadataRefreshMode Mode { get; init; } = MetadataRefreshMode.Missing;
+
+    /// <summary>
+    /// Optional. When set and different from the library language, updates
+    /// <c>preferredLanguage</c> before enqueueing (without a separate refresh pass).
+    /// </summary>
+    public string? PreferredLanguage { get; init; }
+}
+
+public sealed record LibraryMetadataRefreshAccepted
+{
+    public required Guid LibraryId { get; init; }
+    public required MetadataRefreshMode Mode { get; init; }
+    public required int EnqueuedCount { get; init; }
+    public string? PreferredLanguage { get; init; }
+}

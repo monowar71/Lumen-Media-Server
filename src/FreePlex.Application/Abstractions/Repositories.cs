@@ -65,6 +65,9 @@ public interface IMediaRepository
     /// <summary>Item ids in a library that still need metadata (no overview / no TMDB id).</summary>
     Task<IReadOnlyList<Guid>> ListIdsMissingMetadataAsync(Guid libraryId, CancellationToken ct);
 
+    /// <summary>All movie/series item ids in a library (for full metadata refresh).</summary>
+    Task<IReadOnlyList<Guid>> ListIdsForLibraryAsync(Guid libraryId, CancellationToken ct);
+
     /// <summary>Item ids that already have an external provider id (eligible for language re-enrich).</summary>
     Task<IReadOnlyList<Guid>> ListIdsWithExternalIdsAsync(CancellationToken ct);
 
