@@ -12,10 +12,14 @@ public sealed class InMemorySettingsStore : ISettingsStore
     private readonly Lock _gate = new();
     private ServerSettingsDto _current;
 
-    public InMemorySettingsStore(IOptions<PlaybackOptions> playback, IOptions<ImportOptions> import)
+    public InMemorySettingsStore(
+        IOptions<PlaybackOptions> playback,
+        IOptions<ImportOptions> import,
+        IOptions<MetadataOptions> metadata)
     {
         var p = playback.Value;
         var i = import.Value;
+        var m = metadata.Value;
         _current = new ServerSettingsDto
         {
             Transcoding = new TranscodingSettingsDto
@@ -32,8 +36,8 @@ public sealed class InMemorySettingsStore : ISettingsStore
             Metadata = new MetadataSettingsDto
             {
                 Providers = ["Tmdb", "Tvdb", "Fanart"],
-                Language = "en-US",
-                FallbackLanguage = "en-US",
+                Language = m.Language,
+                FallbackLanguage = m.FallbackLanguage,
             },
             Import = new ImportSettingsDto
             {

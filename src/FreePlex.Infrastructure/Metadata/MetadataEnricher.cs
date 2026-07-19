@@ -25,6 +25,7 @@ public sealed class MetadataEnricher(
     IEnumerable<IMetadataProvider> providers,
     IArtworkStore artworkStore,
     IRemoteImageFetcher images,
+    IMetadataLanguageSource languageSource,
     TimeProvider clock,
     ILogger<MetadataEnricher> logger) : IMetadataEnricher
 {
@@ -43,6 +44,7 @@ public sealed class MetadataEnricher(
             return false;
         }
 
+        var language = await ResolveLanguageAsync(item.LibraryId, ct);
         var kind = item.Kind;
         MetadataDetails? details = null;
 
@@ -51,11 +53,11 @@ public sealed class MetadataEnricher(
             var named = ResolveProvider(provider);
             if (named is null)
                 return false;
-            details = await named.GetDetailsAsync(providerId, kind, ct);
+            details = await named.GetDetailsAsync(providerId, kind, language, ct);
         }
         else
         {
-            details = await AutoMatchAsync(item, ct);
+            details = await AutoMatchAsync(item, language, ct);
         }
 
         if (details is null)
@@ -82,14 +84,23 @@ public sealed class MetadataEnricher(
         return true;
     }
 
-    private async Task<MetadataDetails?> AutoMatchAsync(MediaItem item, CancellationToken ct)
+    private async Task<MetadataLanguage> ResolveLanguageAsync(Guid libraryId, CancellationToken ct)
+    {
+        var server = languageSource.Get();
+        var library = await uow.Libraries.GetByIdAsync(libraryId, ct);
+        if (library is not null && !string.IsNullOrWhiteSpace(library.PreferredLanguage))
+            return server with { Language = library.PreferredLanguage };
+        return server;
+    }
+
+    private async Task<MetadataDetails?> AutoMatchAsync(MediaItem item, MetadataLanguage language, CancellationToken ct)
     {
         // Prefer an existing external id on re-refresh.
         if (!string.IsNullOrWhiteSpace(item.TmdbId))
         {
             var tmdb = providers.FirstOrDefault(p =>
                 p.Name.Equals(TmdbMetadataProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
-            var existing = tmdb is null ? null : await tmdb.GetDetailsAsync(item.TmdbId, item.Kind, ct);
+            var existing = tmdb is null ? null : await tmdb.GetDetailsAsync(item.TmdbId, item.Kind, language, ct);
             if (existing is not null)
                 return existing;
         }
@@ -98,7 +109,7 @@ public sealed class MetadataEnricher(
         {
             var tvmaze = providers.FirstOrDefault(p =>
                 p.Name.Equals(TvMazeMetadataProvider.ProviderName, StringComparison.OrdinalIgnoreCase));
-            var existing = tvmaze is null ? null : await tvmaze.GetDetailsAsync(item.TvdbId, item.Kind, ct);
+            var existing = tvmaze is null ? null : await tvmaze.GetDetailsAsync(item.TvdbId, item.Kind, language, ct);
             if (existing is not null)
                 return existing;
         }
@@ -107,7 +118,7 @@ public sealed class MetadataEnricher(
         IMetadataProvider? bestProvider = null;
         foreach (var provider in providers.Where(p => p.IsConfigured))
         {
-            var matches = await provider.SearchAsync(item.Title, item.Year, item.Kind, ct);
+            var matches = await provider.SearchAsync(item.Title, item.Year, item.Kind, language, ct);
             var top = matches.FirstOrDefault();
             if (top is null)
                 continue;
@@ -121,7 +132,7 @@ public sealed class MetadataEnricher(
         if (best is null || bestProvider is null || best.Score < 0.55)
             return null;
 
-        return await bestProvider.GetDetailsAsync(best.ProviderId, item.Kind, ct);
+        return await bestProvider.GetDetailsAsync(best.ProviderId, item.Kind, language, ct);
     }
 
     private IMetadataProvider? ResolveProvider(string? name)

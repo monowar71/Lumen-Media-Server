@@ -37,4 +37,20 @@ public sealed class MetadataJobService(IUnitOfWork uow, IJobQueue jobQueue, Time
         foreach (var id in ids)
             await EnqueueItemAsync(id, provider: null, providerId: null, ct);
     }
+
+    /// <summary>Re-fetch metadata for every item that already has an external id (language change).</summary>
+    public async Task EnqueueRefreshAllAsync(CancellationToken ct)
+    {
+        var ids = await uow.Media.ListIdsWithExternalIdsAsync(ct);
+        foreach (var id in ids)
+            await EnqueueItemAsync(id, provider: null, providerId: null, ct);
+    }
+
+    /// <summary>Re-fetch metadata for matched items in one library (preferred-language change).</summary>
+    public async Task EnqueueRefreshForLibraryAsync(Guid libraryId, CancellationToken ct)
+    {
+        var ids = await uow.Media.ListIdsWithExternalIdsForLibraryAsync(libraryId, ct);
+        foreach (var id in ids)
+            await EnqueueItemAsync(id, provider: null, providerId: null, ct);
+    }
 }

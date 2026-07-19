@@ -50,6 +50,7 @@ public static class DependencyInjection
         services.AddSingleton<ITranscoder, FfmpegTranscoder>();
         services.AddSingleton<ISubtitleConverter, FfmpegSubtitleConverter>();
         services.AddSingleton<ISettingsStore, InMemorySettingsStore>();
+        services.AddSingleton<IMetadataLanguageSource, SettingsMetadataLanguageSource>();
         services.AddSingleton<IRemoteImageFetcher, HttpRemoteImageFetcher>();
         services.AddSingleton<IMetadataProvider, TmdbMetadataProvider>();
         services.AddSingleton<IMetadataProvider, TvMazeMetadataProvider>();

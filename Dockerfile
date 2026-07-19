@@ -6,7 +6,8 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY global.json Directory.Build.props ./
 COPY . .
-RUN dotnet restore FreePlex.slnx
+# Restore/publish the API project only — test projects are excluded via .dockerignore.
+RUN dotnet restore src/FreePlex.Api/FreePlex.Api.csproj
 RUN dotnet publish src/FreePlex.Api/FreePlex.Api.csproj -c Release -o /app --no-restore
 
 # ---- runtime ----

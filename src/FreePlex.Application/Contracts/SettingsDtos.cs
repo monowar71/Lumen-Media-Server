@@ -20,7 +20,7 @@ public sealed record TranscodingSettingsDto
 public sealed record MetadataSettingsDto
 {
     public IReadOnlyList<string> Providers { get; init; } = [];
-    public string Language { get; init; } = "en-US";
+    public string Language { get; init; } = "ru-RU";
     public string FallbackLanguage { get; init; } = "en-US";
 }
 

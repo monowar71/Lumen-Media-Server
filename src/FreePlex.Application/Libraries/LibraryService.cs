@@ -4,12 +4,18 @@ using FreePlex.Application.Common;
 using FreePlex.Application.Contracts;
 using FreePlex.Domain.Enums;
 using FreePlex.Application.Jobs;
+using FreePlex.Application.Metadata;
 using FreePlex.Domain.Jobs;
 using FreePlex.Domain.Libraries;
 
 namespace FreePlex.Application.Libraries;
 
-public sealed class LibraryService(IUnitOfWork uow, IJobQueue jobQueue, TimeProvider clock)
+public sealed class LibraryService(
+    IUnitOfWork uow,
+    IJobQueue jobQueue,
+    IMetadataLanguageSource languageSource,
+    MetadataJobService metadataJobs,
+    TimeProvider clock)
 {
     public async Task<IReadOnlyList<LibraryDto>> ListAsync(Caller caller, CancellationToken ct)
     {
@@ -35,15 +41,19 @@ public sealed class LibraryService(IUnitOfWork uow, IJobQueue jobQueue, TimeProv
             throw new ValidationException("paths", "At least one path is required.");
 
         var now = clock.GetUtcNow();
-        var settings = request.Settings ?? new LibrarySettingsDto();
+        var serverLanguage = languageSource.Get().Language;
+        var settings = request.Settings;
+        var preferredLanguage = string.IsNullOrWhiteSpace(settings?.PreferredLanguage)
+            ? serverLanguage
+            : settings.PreferredLanguage;
         var library = new Library(
             request.Name.Trim(),
             request.Type,
             request.Paths,
             now,
-            settings.PreferredLanguage,
-            settings.MetadataProviders,
-            settings.AutoScan);
+            preferredLanguage,
+            settings?.MetadataProviders,
+            settings?.AutoScan ?? true);
 
         await uow.Libraries.AddAsync(library, ct);
         await uow.SaveChangesAsync(ct);
@@ -55,6 +65,7 @@ public sealed class LibraryService(IUnitOfWork uow, IJobQueue jobQueue, TimeProv
         var lib = await uow.Libraries.GetByIdAsync(id, ct)
                   ?? throw new NotFoundException("Library not found.");
 
+        var previousLanguage = lib.PreferredLanguage;
         lib.Update(
             request.Name,
             request.Settings?.PreferredLanguage,
@@ -69,6 +80,13 @@ public sealed class LibraryService(IUnitOfWork uow, IJobQueue jobQueue, TimeProv
         }
 
         await uow.SaveChangesAsync(ct);
+
+        if (!string.IsNullOrWhiteSpace(request.Settings?.PreferredLanguage)
+            && !string.Equals(previousLanguage, lib.PreferredLanguage, StringComparison.OrdinalIgnoreCase))
+        {
+            await metadataJobs.EnqueueRefreshForLibraryAsync(lib.Id, ct);
+        }
+
         return await MapAsync(lib, ct);
     }
 

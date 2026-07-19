@@ -21,12 +21,30 @@ public sealed record MetadataDetails(
     DateOnly? ReleaseDate = null,
     long? RuntimeMs = null);
 
+/// <summary>Locale pair used when fetching localized metadata from providers.</summary>
+public sealed record MetadataLanguage(string Language, string FallbackLanguage);
+
+/// <summary>Current server-wide metadata language (from settings, not a frozen IOptions snapshot).</summary>
+public interface IMetadataLanguageSource
+{
+    MetadataLanguage Get();
+}
+
 public interface IMetadataProvider
 {
     string Name { get; }
     bool IsConfigured { get; }
-    Task<IReadOnlyList<MetadataMatch>> SearchAsync(string title, int? year, MediaKind kind, CancellationToken ct);
-    Task<MetadataDetails?> GetDetailsAsync(string providerId, MediaKind kind, CancellationToken ct);
+    Task<IReadOnlyList<MetadataMatch>> SearchAsync(
+        string title,
+        int? year,
+        MediaKind kind,
+        MetadataLanguage language,
+        CancellationToken ct);
+    Task<MetadataDetails?> GetDetailsAsync(
+        string providerId,
+        MediaKind kind,
+        MetadataLanguage language,
+        CancellationToken ct);
 }
 
 /// <summary>Downloads a remote image into the local artwork cache.</summary>

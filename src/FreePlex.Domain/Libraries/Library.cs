@@ -14,7 +14,7 @@ public class Library
         LibraryType type,
         IEnumerable<string> paths,
         DateTimeOffset now,
-        string preferredLanguage = "en-US",
+        string preferredLanguage = "ru-RU",
         IEnumerable<string>? metadataProviders = null,
         bool autoScan = true)
     {
@@ -36,7 +36,7 @@ public class Library
     public Guid Id { get; private set; }
     public string Name { get; private set; } = null!;
     public LibraryType Type { get; private set; }
-    public string PreferredLanguage { get; private set; } = "en-US";
+    public string PreferredLanguage { get; private set; } = "ru-RU";
     public bool AutoScan { get; private set; }
     public DateTimeOffset? LastScanAt { get; private set; }
     public DateTimeOffset CreatedAt { get; private set; }

@@ -27,8 +27,10 @@ public sealed partial class TvMazeMetadataProvider(
         string title,
         int? year,
         MediaKind kind,
+        MetadataLanguage language,
         CancellationToken ct)
     {
+        _ = language; // TVMaze has no language parameter; returns provider-default text.
         if (kind != MediaKind.Series || string.IsNullOrWhiteSpace(title))
             return [];
 
@@ -65,8 +67,13 @@ public sealed partial class TvMazeMetadataProvider(
         }
     }
 
-    public async Task<MetadataDetails?> GetDetailsAsync(string providerId, MediaKind kind, CancellationToken ct)
+    public async Task<MetadataDetails?> GetDetailsAsync(
+        string providerId,
+        MediaKind kind,
+        MetadataLanguage language,
+        CancellationToken ct)
     {
+        _ = language;
         if (kind != MediaKind.Series || string.IsNullOrWhiteSpace(providerId))
             return null;
 

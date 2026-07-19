@@ -4,7 +4,7 @@ namespace FreePlex.Application.Contracts;
 
 public sealed record LibrarySettingsDto
 {
-    public string PreferredLanguage { get; init; } = "en-US";
+    public string PreferredLanguage { get; init; } = "ru-RU";
     public IReadOnlyList<string> MetadataProviders { get; init; } = [];
     public bool AutoScan { get; init; } = true;
 }

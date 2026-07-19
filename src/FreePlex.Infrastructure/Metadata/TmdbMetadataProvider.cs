@@ -31,6 +31,7 @@ public sealed class TmdbMetadataProvider(
         string title,
         int? year,
         MediaKind kind,
+        MetadataLanguage language,
         CancellationToken ct)
     {
         if (!IsConfigured || string.IsNullOrWhiteSpace(title))
@@ -42,7 +43,7 @@ public sealed class TmdbMetadataProvider(
         {
             ["query"] = title,
             ["include_adult"] = "false",
-            ["language"] = options.Value.Language,
+            ["language"] = language.Language,
         };
         if (year is not null)
         {
@@ -69,7 +70,11 @@ public sealed class TmdbMetadataProvider(
             .ToList();
     }
 
-    public async Task<MetadataDetails?> GetDetailsAsync(string providerId, MediaKind kind, CancellationToken ct)
+    public async Task<MetadataDetails?> GetDetailsAsync(
+        string providerId,
+        MediaKind kind,
+        MetadataLanguage language,
+        CancellationToken ct)
     {
         if (!IsConfigured || string.IsNullOrWhiteSpace(providerId))
             return null;
@@ -78,7 +83,7 @@ public sealed class TmdbMetadataProvider(
         var path = kind == MediaKind.Movie ? $"movie/{providerId}" : $"tv/{providerId}";
         var query = new Dictionary<string, string?>
         {
-            ["language"] = options.Value.Language,
+            ["language"] = language.Language,
             ["append_to_response"] = "external_ids",
         };
 
@@ -86,11 +91,11 @@ public sealed class TmdbMetadataProvider(
         if (details is null)
             return null;
 
-        // Fallback to English overview when the preferred language is empty.
+        // Fallback overview when the preferred language is empty.
         if (string.IsNullOrWhiteSpace(details.Overview)
-            && !string.Equals(options.Value.Language, options.Value.FallbackLanguage, StringComparison.OrdinalIgnoreCase))
+            && !string.Equals(language.Language, language.FallbackLanguage, StringComparison.OrdinalIgnoreCase))
         {
-            query["language"] = options.Value.FallbackLanguage;
+            query["language"] = language.FallbackLanguage;
             var fallback = await GetAsync<TmdbDetailsResponse>(client, path, query, ct);
             if (fallback is not null && !string.IsNullOrWhiteSpace(fallback.Overview))
                 details = details with { Overview = fallback.Overview };

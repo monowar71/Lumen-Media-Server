@@ -14,5 +14,8 @@ public sealed class SettingsController(SettingsService settings) : ControllerBas
     public ActionResult<ServerSettingsDto> Get() => Ok(settings.Get());
 
     [HttpPut]
-    public ActionResult<ServerSettingsDto> Update([FromBody] ServerSettingsDto patch) => Ok(settings.Update(patch));
+    public async Task<ActionResult<ServerSettingsDto>> Update(
+        [FromBody] ServerSettingsDto patch,
+        CancellationToken ct) =>
+        Ok(await settings.UpdateAsync(patch, ct));
 }
