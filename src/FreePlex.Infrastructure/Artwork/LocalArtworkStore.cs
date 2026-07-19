@@ -37,6 +37,24 @@ public sealed class LocalArtworkStore(IOptions<PathsOptions> paths) : IArtworkSt
         return path;
     }
 
+    public void DeleteOwner(Guid ownerId)
+    {
+        var dir = Path.Combine(MetadataRoot, ownerId.ToString());
+        if (!Directory.Exists(dir))
+            return;
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+        catch (IOException)
+        {
+            // Best-effort: orphaned artwork is cleaned up by later maintenance.
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
     private static string ComputeETag(string path, long length, DateTime mtime)
     {
         var raw = $"{path}:{length}:{mtime.Ticks}";

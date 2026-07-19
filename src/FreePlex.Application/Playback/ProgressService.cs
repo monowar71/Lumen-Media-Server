@@ -12,7 +12,10 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
 {
     public async Task<ProgressResponse> UpdateAsync(Guid userId, Guid itemId, UpdateProgressRequest request, CancellationToken ct)
     {
-        var kind = await ResolveKindAsync(itemId, ct)
+        if (request.Watched is { } watched)
+            return await SetWatchedAsync(userId, itemId, watched, ct);
+
+        var kind = await ResolvePlayableKindAsync(itemId, ct)
                    ?? throw new NotFoundException("Item not found.");
 
         var now = clock.GetUtcNow();
@@ -35,13 +38,7 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
             originDeviceId: null,
             ct);
 
-        return new ProgressResponse
-        {
-            ItemId = itemId,
-            PositionMs = progress.PositionMs,
-            Watched = progress.Watched,
-            UpdatedAt = progress.UpdatedAt,
-        };
+        return ToResponse(itemId, progress);
     }
 
     public async Task<ProgressResponse> GetAsync(Guid userId, Guid itemId, CancellationToken ct)
@@ -121,7 +118,91 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
         return new PagedResult<MediaItemSummary>(items, 1, limit, items.Count);
     }
 
-    private async Task<MediaKind?> ResolveKindAsync(Guid itemId, CancellationToken ct)
+    private async Task<ProgressResponse> SetWatchedAsync(Guid userId, Guid itemId, bool watched, CancellationToken ct)
+    {
+        var targets = await ResolveWatchedTargetsAsync(itemId, ct);
+        if (targets.Count == 0)
+            throw new NotFoundException("Item not found.");
+
+        var now = clock.GetUtcNow();
+        PlaybackProgress? primary = null;
+
+        foreach (var (mediaId, kind) in targets)
+        {
+            var progress = await uow.Progress.GetAsync(userId, mediaId, ct);
+            if (progress is null)
+            {
+                progress = new PlaybackProgress(userId, mediaId, kind, now);
+                await uow.Progress.AddAsync(progress, ct);
+            }
+
+            progress.SetWatched(watched, now);
+            if (mediaId == itemId || primary is null)
+                primary = progress;
+        }
+
+        await uow.SaveChangesAsync(ct);
+
+        // Cascade targets (series/season) are not playable themselves — sync the first episode.
+        var syncId = targets[0].MediaId;
+        var syncProgress = await uow.Progress.GetAsync(userId, syncId, ct)
+                           ?? primary!;
+
+        await notifier.NotifyPlaybackSyncAsync(
+            userId,
+            syncId,
+            syncProgress.PositionMs,
+            state: watched ? "stopped" : "paused",
+            originDeviceId: null,
+            ct);
+
+        // For series/season the itemId is not a progress row — report the requested flag.
+        if (targets.Count == 1 && targets[0].MediaId == itemId)
+            return ToResponse(itemId, syncProgress);
+
+        return new ProgressResponse
+        {
+            ItemId = itemId,
+            PositionMs = 0,
+            Watched = watched,
+            UpdatedAt = now,
+        };
+    }
+
+    private async Task<IReadOnlyList<(Guid MediaId, MediaKind Kind)>> ResolveWatchedTargetsAsync(
+        Guid itemId,
+        CancellationToken ct)
+    {
+        var item = await uow.Media.GetByIdAsync(itemId, ct);
+        if (item is Movie)
+            return [(itemId, MediaKind.Movie)];
+
+        if (item is Series series)
+        {
+            var result = new List<(Guid, MediaKind)>();
+            foreach (var season in await uow.Media.GetSeasonsAsync(series.Id, ct))
+            {
+                foreach (var ep in await uow.Media.GetEpisodesAsync(season.Id, ct))
+                    result.Add((ep.Id, MediaKind.Episode));
+            }
+            return result;
+        }
+
+        var singleEpisode = await uow.Media.GetEpisodeAsync(itemId, ct);
+        if (singleEpisode is not null)
+            return [(singleEpisode.Id, MediaKind.Episode)];
+
+        var seasonEntity = await uow.Media.GetSeasonAsync(itemId, ct);
+        if (seasonEntity is not null)
+        {
+            var episodes = await uow.Media.GetEpisodesAsync(seasonEntity.Id, ct);
+            return episodes.Select(e => (e.Id, MediaKind.Episode)).ToList();
+        }
+
+        return [];
+    }
+
+    private async Task<MediaKind?> ResolvePlayableKindAsync(Guid itemId, CancellationToken ct)
     {
         var item = await uow.Media.GetByIdAsync(itemId, ct);
         if (item is Movie)
@@ -129,4 +210,12 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
         var episode = await uow.Media.GetEpisodeAsync(itemId, ct);
         return episode is not null ? MediaKind.Episode : null;
     }
+
+    private static ProgressResponse ToResponse(Guid itemId, PlaybackProgress progress) => new()
+    {
+        ItemId = itemId,
+        PositionMs = progress.PositionMs,
+        Watched = progress.Watched,
+        UpdatedAt = progress.UpdatedAt,
+    };
 }

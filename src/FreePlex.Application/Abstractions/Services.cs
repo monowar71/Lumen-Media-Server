@@ -25,6 +25,8 @@ public interface IArtworkStore
 {
     Task<ArtworkResult?> GetAsync(string localPath, int? width, int? height, int? quality, CancellationToken ct);
     Task<string> SaveAsync(Guid ownerId, ArtworkKind kind, Stream content, CancellationToken ct);
+    /// <summary>Deletes the on-disk artwork directory for an owner (best-effort).</summary>
+    void DeleteOwner(Guid ownerId);
 }
 
 public sealed record ScanResult(int Added, int Updated, int Removed);

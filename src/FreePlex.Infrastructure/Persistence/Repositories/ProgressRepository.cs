@@ -21,6 +21,34 @@ public sealed class ProgressRepository(FreePlexDbContext db) : IProgressReposito
             .OrderByDescending(p => p.UpdatedAt)
             .Take(limit)
             .ToListAsync(ct);
+
+    public async Task<PagedResult<PlaybackProgress>> GetHistoryAsync(Guid userId, int page, int pageSize, CancellationToken ct)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = db.Progress.AsNoTracking()
+            .Where(p => p.UserId == userId && (p.Watched || p.PositionMs > 0))
+            .OrderByDescending(p => p.UpdatedAt);
+
+        var total = await query.CountAsync(ct);
+        var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
+        return new PagedResult<PlaybackProgress>(items, page, pageSize, total);
+    }
+
+    public async Task<IReadOnlyList<PlaybackProgress>> ListHistoryForClearAsync(Guid userId, CancellationToken ct) =>
+        await db.Progress
+            .Where(p => p.UserId == userId && (p.Watched || p.PositionMs > 0 || p.PlayCount > 0))
+            .ToListAsync(ct);
+
+    public void Remove(PlaybackProgress progress) => db.Progress.Remove(progress);
+
+    public Task<int> DeleteForMediaIdsAsync(IReadOnlyCollection<Guid> mediaIds, CancellationToken ct)
+    {
+        if (mediaIds.Count == 0)
+            return Task.FromResult(0);
+        return db.Progress.Where(p => mediaIds.Contains(p.MediaId)).ExecuteDeleteAsync(ct);
+    }
 }
 
 public sealed class JobRepository(FreePlexDbContext db) : IJobRepository

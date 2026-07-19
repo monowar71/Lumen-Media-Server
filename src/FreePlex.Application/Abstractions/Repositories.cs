@@ -42,11 +42,29 @@ public interface IMediaRepository
     Task<IReadOnlyList<MediaItemSummary>> GetRecentlyAddedAsync(IReadOnlyCollection<Guid> allowedLibraryIds, int limit, Guid userId, CancellationToken ct);
 
     Task<IReadOnlyList<Season>> GetSeasonsAsync(Guid seriesId, CancellationToken ct);
+    Task<Season?> GetSeasonAsync(Guid seasonId, CancellationToken ct);
     Task<IReadOnlyList<Episode>> GetEpisodesAsync(Guid seasonId, CancellationToken ct);
     Task<Episode?> GetEpisodeAsync(Guid episodeId, CancellationToken ct);
+    Task<IReadOnlyList<Episode>> GetEpisodesByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct);
+
+    /// <summary>Finds a movie by TMDB/TVDB/IMDB id (first non-null match wins, TMDB preferred).</summary>
+    Task<Movie?> FindMovieByExternalIdsAsync(string? tmdbId, string? tvdbId, string? imdbId, CancellationToken ct);
+
+    /// <summary>Finds a series by TMDB/TVDB/IMDB id (first non-null match wins, TMDB preferred).</summary>
+    Task<Series?> FindSeriesByExternalIdsAsync(string? tmdbId, string? tvdbId, string? imdbId, CancellationToken ct);
 
     /// <summary>Returns a TRACKED series (with its seasons and episodes) for scan-time reuse, or null.</summary>
     Task<Series?> FindSeriesForScanAsync(Guid libraryId, string title, CancellationToken ct);
+
+    /// <summary>
+    /// Another series in the same library with the same external id (TMDB preferred, else TVDB),
+    /// used to detect scan-time duplicates after metadata matching.
+    /// </summary>
+    Task<Series?> FindOtherSeriesByExternalIdAsync(
+        Guid libraryId, Guid excludeId, string? tmdbId, string? tvdbId, CancellationToken ct);
+
+    /// <summary>TRACKED series with seasons → episodes → sources for merge writes.</summary>
+    Task<Series?> GetTrackedSeriesGraphAsync(Guid id, CancellationToken ct);
 
     /// <summary>Returns a TRACKED episode by series/season/number for scan-time reuse, or null.</summary>
     Task<Episode?> FindEpisodeForScanAsync(Guid seriesId, int seasonNumber, int episodeNumber, CancellationToken ct);
@@ -96,6 +114,7 @@ public interface IMediaRepository
     /// </summary>
     Task AddArtworkAsync(Artwork artwork, CancellationToken ct);
 
+    void RemoveEpisode(Episode episode);
     void Remove(MediaItem item);
 }
 
@@ -104,6 +123,14 @@ public interface IProgressRepository
     Task<PlaybackProgress?> GetAsync(Guid userId, Guid mediaId, CancellationToken ct);
     Task AddAsync(PlaybackProgress progress, CancellationToken ct);
     Task<IReadOnlyList<PlaybackProgress>> GetContinueWatchingAsync(Guid userId, int limit, CancellationToken ct);
+    /// <summary>Watch history rows (watched or in-progress), newest first.</summary>
+    Task<PagedResult<PlaybackProgress>> GetHistoryAsync(Guid userId, int page, int pageSize, CancellationToken ct);
+    /// <summary>Tracked history rows eligible for clear (watched or in-progress).</summary>
+    Task<IReadOnlyList<PlaybackProgress>> ListHistoryForClearAsync(Guid userId, CancellationToken ct);
+    /// <summary>Deletes progress rows that have no remaining watch/favorite state.</summary>
+    void Remove(PlaybackProgress progress);
+    /// <summary>Deletes progress rows for the given media/episode ids (no FK cascade exists).</summary>
+    Task<int> DeleteForMediaIdsAsync(IReadOnlyCollection<Guid> mediaIds, CancellationToken ct);
 }
 
 public interface IJobRepository

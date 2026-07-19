@@ -6,6 +6,7 @@ using FreePlex.Infrastructure.Import;
 using FreePlex.Infrastructure.Jobs;
 using FreePlex.Infrastructure.Metadata;
 using FreePlex.Infrastructure.Persistence;
+using FreePlex.Infrastructure.Plex;
 using FreePlex.Infrastructure.Scanning;
 using FreePlex.Infrastructure.Security;
 using FreePlex.Infrastructure.Settings;
@@ -81,6 +82,13 @@ public static class DependencyInjection
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("FreePlex/0.1");
         });
+        // Base address is per-request (user-supplied Plex URL); keep a generous timeout for large libraries.
+        services.AddHttpClient("Plex", client =>
+        {
+            client.Timeout = TimeSpan.FromMinutes(2);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("FreePlex/0.1");
+        });
+        services.AddSingleton<IPlexHistoryClient, PlexHistoryClient>();
 
         services.AddScoped<IMediaScanner, FileSystemScanner>();
         services.AddScoped<IFileImporter, HardlinkImporter>();

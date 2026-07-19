@@ -43,6 +43,17 @@ public class Episode
         RuntimeMs = runtimeMs;
     }
 
+    /// <summary>Moves this episode onto another series/season (used when merging duplicates).</summary>
+    public void Reassign(Guid seriesId, Guid seasonId)
+    {
+        if (seriesId == Guid.Empty)
+            throw new ArgumentException("Series id is required", nameof(seriesId));
+        if (seasonId == Guid.Empty)
+            throw new ArgumentException("Season id is required", nameof(seasonId));
+        SeriesId = seriesId;
+        SeasonId = seasonId;
+    }
+
     public MediaSource AddSource(MediaSource source)
     {
         _sources.Add(source);

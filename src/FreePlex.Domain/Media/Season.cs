@@ -31,4 +31,15 @@ public class Season
         _episodes.Add(episode);
         return episode;
     }
+
+    /// <summary>Drops an episode from the in-memory collection after it was reparented elsewhere.</summary>
+    public bool DetachEpisode(Episode episode) => _episodes.Remove(episode);
+
+    /// <summary>Moves this season onto another series (used when merging duplicate series).</summary>
+    public void ReassignSeries(Guid seriesId)
+    {
+        if (seriesId == Guid.Empty)
+            throw new ArgumentException("Series id is required", nameof(seriesId));
+        SeriesId = seriesId;
+    }
 }

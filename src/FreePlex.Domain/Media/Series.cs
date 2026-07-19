@@ -31,4 +31,7 @@ public class Series : MediaItem
         _seasons.Add(season);
         return season;
     }
+
+    /// <summary>Drops a season from the in-memory collection after it was reparented elsewhere.</summary>
+    public bool DetachSeason(Season season) => _seasons.Remove(season);
 }

@@ -103,6 +103,9 @@ public sealed class MediaRepository(FreePlexDbContext db) : IMediaRepository
             .OrderBy(s => s.SeasonNumber)
             .ToListAsync(ct);
 
+    public Task<Season?> GetSeasonAsync(Guid seasonId, CancellationToken ct) =>
+        db.Seasons.AsNoTracking().FirstOrDefaultAsync(s => s.Id == seasonId, ct);
+
     public async Task<IReadOnlyList<Episode>> GetEpisodesAsync(Guid seasonId, CancellationToken ct) =>
         await db.Episodes.AsNoTracking()
             .Where(e => e.SeasonId == seasonId)
@@ -115,11 +118,122 @@ public sealed class MediaRepository(FreePlexDbContext db) : IMediaRepository
             .Include(e => e.Sources).ThenInclude(s => s.Streams)
             .FirstOrDefaultAsync(e => e.Id == episodeId, ct);
 
+    public async Task<IReadOnlyList<Episode>> GetEpisodesByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken ct)
+    {
+        if (ids.Count == 0)
+            return [];
+        return await db.Episodes.AsNoTracking()
+            .Where(e => ids.Contains(e.Id))
+            .ToListAsync(ct);
+    }
+
+    public async Task<Movie?> FindMovieByExternalIdsAsync(
+        string? tmdbId, string? tvdbId, string? imdbId, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(tmdbId))
+        {
+            var byTmdb = await db.Movies.AsNoTracking()
+                .Where(m => m.TmdbId == tmdbId)
+                .OrderBy(m => m.AddedAt)
+                .FirstOrDefaultAsync(ct);
+            if (byTmdb is not null)
+                return byTmdb;
+        }
+
+        if (!string.IsNullOrWhiteSpace(imdbId))
+        {
+            var byImdb = await db.Movies.AsNoTracking()
+                .Where(m => m.ImdbId == imdbId)
+                .OrderBy(m => m.AddedAt)
+                .FirstOrDefaultAsync(ct);
+            if (byImdb is not null)
+                return byImdb;
+        }
+
+        if (!string.IsNullOrWhiteSpace(tvdbId))
+        {
+            return await db.Movies.AsNoTracking()
+                .Where(m => m.TvdbId == tvdbId)
+                .OrderBy(m => m.AddedAt)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        return null;
+    }
+
+    public async Task<Series?> FindSeriesByExternalIdsAsync(
+        string? tmdbId, string? tvdbId, string? imdbId, CancellationToken ct)
+    {
+        if (!string.IsNullOrWhiteSpace(tmdbId))
+        {
+            var byTmdb = await db.Series.AsNoTracking()
+                .Where(s => s.TmdbId == tmdbId)
+                .OrderBy(s => s.AddedAt)
+                .FirstOrDefaultAsync(ct);
+            if (byTmdb is not null)
+                return byTmdb;
+        }
+
+        if (!string.IsNullOrWhiteSpace(tvdbId))
+        {
+            var byTvdb = await db.Series.AsNoTracking()
+                .Where(s => s.TvdbId == tvdbId)
+                .OrderBy(s => s.AddedAt)
+                .FirstOrDefaultAsync(ct);
+            if (byTvdb is not null)
+                return byTvdb;
+        }
+
+        if (!string.IsNullOrWhiteSpace(imdbId))
+        {
+            return await db.Series.AsNoTracking()
+                .Where(s => s.ImdbId == imdbId)
+                .OrderBy(s => s.AddedAt)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        return null;
+    }
+
     public Task<Series?> FindSeriesForScanAsync(Guid libraryId, string title, CancellationToken ct) =>
         db.Series
             .Include(s => s.Seasons)
                 .ThenInclude(s => s.Episodes)
             .FirstOrDefaultAsync(s => s.LibraryId == libraryId && s.Title == title, ct);
+
+    public async Task<Series?> FindOtherSeriesByExternalIdAsync(
+        Guid libraryId, Guid excludeId, string? tmdbId, string? tvdbId, CancellationToken ct)
+    {
+        // Prefer TMDB: it is the authoritative id after enrichment. Fall back to TVDB only
+        // when neither side has a TMDB id (avoids false merges across providers).
+        if (!string.IsNullOrWhiteSpace(tmdbId))
+        {
+            return await db.Series
+                .Where(s => s.LibraryId == libraryId && s.Id != excludeId && s.TmdbId == tmdbId)
+                .OrderBy(s => s.AddedAt)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        if (!string.IsNullOrWhiteSpace(tvdbId))
+        {
+            return await db.Series
+                .Where(s => s.LibraryId == libraryId
+                            && s.Id != excludeId
+                            && s.TvdbId == tvdbId
+                            && s.TmdbId == null)
+                .OrderBy(s => s.AddedAt)
+                .FirstOrDefaultAsync(ct);
+        }
+
+        return null;
+    }
+
+    public Task<Series?> GetTrackedSeriesGraphAsync(Guid id, CancellationToken ct) =>
+        db.Series
+            .Include(s => s.Seasons)
+                .ThenInclude(season => season.Episodes)
+                    .ThenInclude(e => e.Sources)
+            .FirstOrDefaultAsync(s => s.Id == id, ct);
 
     public Task<Episode?> FindEpisodeForScanAsync(Guid seriesId, int seasonNumber, int episodeNumber, CancellationToken ct) =>
         db.Episodes.FirstOrDefaultAsync(
@@ -243,6 +357,8 @@ public sealed class MediaRepository(FreePlexDbContext db) : IMediaRepository
 
     public async Task AddArtworkAsync(Artwork artwork, CancellationToken ct) =>
         await db.Artworks.AddAsync(artwork, ct);
+
+    public void RemoveEpisode(Episode episode) => db.Episodes.Remove(episode);
 
     public void Remove(MediaItem item) => db.MediaItems.Remove(item);
 

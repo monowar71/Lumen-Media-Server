@@ -139,10 +139,139 @@ public sealed class MetadataEnricher(
             await ApplyArtworkAsync(item, ArtworkKind.Backdrop, details.BackdropUrl, ct);
         await uow.SaveChangesAsync(ct);
 
+        if (item is Series)
+            await MergeDuplicateSeriesAsync(item.Id, ct);
+
         logger.LogInformation(
             "Enriched {Title} via {Provider}/{ProviderId}",
             item.Title, details.Provider, details.ProviderId);
         return true;
+    }
+
+    /// <summary>
+    /// Scan groups series by parsed filename title, so the same show can exist twice
+    /// (e.g. "Star Wars Andor" vs "Andor"). After both match the same external id,
+    /// fold the thinner duplicate into the canonical series.
+    /// </summary>
+    private async Task MergeDuplicateSeriesAsync(Guid seriesId, CancellationToken ct)
+    {
+        var series = await uow.Media.GetTrackedSeriesGraphAsync(seriesId, ct);
+        if (series is null)
+            return;
+        if (string.IsNullOrWhiteSpace(series.TmdbId) && string.IsNullOrWhiteSpace(series.TvdbId))
+            return;
+
+        var other = await uow.Media.FindOtherSeriesByExternalIdAsync(
+            series.LibraryId, series.Id, series.TmdbId, series.TvdbId, ct);
+        if (other is null)
+            return;
+
+        var otherGraph = await uow.Media.GetTrackedSeriesGraphAsync(other.Id, ct);
+        if (otherGraph is null)
+            return;
+
+        var canonical = PickCanonicalSeries(series, otherGraph);
+        var donor = ReferenceEquals(canonical, series) ? otherGraph : series;
+
+        try
+        {
+            await using var tx = await uow.BeginTransactionAsync(ct);
+            var removedEpisodeIds = MergeSeriesInto(canonical, donor);
+            if (removedEpisodeIds.Count > 0)
+                await uow.Progress.DeleteForMediaIdsAsync(removedEpisodeIds, ct);
+
+            uow.Media.Remove(donor);
+            await uow.SaveChangesAsync(ct);
+            await tx.CommitAsync(ct);
+
+            artworkStore.DeleteOwner(donor.Id);
+            logger.LogInformation(
+                "Merged duplicate series {DonorTitle} ({DonorId}) into {CanonicalTitle} ({CanonicalId})",
+                donor.Title, donor.Id, canonical.Title, canonical.Id);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            uow.DiscardChanges();
+            logger.LogWarning(
+                ex,
+                "Failed to merge duplicate series {DonorId} into {CanonicalId}",
+                donor.Id, canonical.Id);
+        }
+    }
+
+    private static Series PickCanonicalSeries(Series a, Series b)
+    {
+        var countA = CountEpisodes(a);
+        var countB = CountEpisodes(b);
+        if (countA != countB)
+            return countA > countB ? a : b;
+        if (a.AddedAt != b.AddedAt)
+            return a.AddedAt <= b.AddedAt ? a : b;
+        return a.Id.CompareTo(b.Id) <= 0 ? a : b;
+    }
+
+    private static int CountEpisodes(Series series) =>
+        series.Seasons.Sum(s => s.Episodes.Count);
+
+    /// <summary>
+    /// Moves seasons/episodes/sources from <paramref name="donor"/> into <paramref name="canonical"/>.
+    /// Returns episode ids that were deleted because the same S/E already existed on the keeper
+    /// (their playback progress must be cleaned up separately).
+    /// </summary>
+    private List<Guid> MergeSeriesInto(Series canonical, Series donor)
+    {
+        var removedEpisodeIds = new List<Guid>();
+
+        foreach (var donorSeason in donor.Seasons.ToList())
+        {
+            var canonicalSeason = canonical.Seasons
+                .FirstOrDefault(s => s.SeasonNumber == donorSeason.SeasonNumber);
+
+            if (canonicalSeason is null)
+            {
+                // Whole season moves — episode Guids (and progress) stay intact.
+                donor.DetachSeason(donorSeason);
+                donorSeason.ReassignSeries(canonical.Id);
+                foreach (var episode in donorSeason.Episodes)
+                    episode.Reassign(canonical.Id, donorSeason.Id);
+                canonical.AddSeason(donorSeason);
+                continue;
+            }
+
+            foreach (var donorEpisode in donorSeason.Episodes.ToList())
+            {
+                var canonicalEpisode = canonicalSeason.Episodes
+                    .FirstOrDefault(e => e.EpisodeNumber == donorEpisode.EpisodeNumber);
+
+                if (canonicalEpisode is null)
+                {
+                    donorSeason.DetachEpisode(donorEpisode);
+                    donorEpisode.Reassign(canonical.Id, canonicalSeason.Id);
+                    canonicalSeason.AddEpisode(donorEpisode);
+                    continue;
+                }
+
+                // Same S/E already on the keeper: move files across, keep the keeper Guid.
+                if (string.IsNullOrWhiteSpace(canonicalEpisode.Title)
+                    && !string.IsNullOrWhiteSpace(donorEpisode.Title))
+                {
+                    canonicalEpisode.SetDetails(
+                        donorEpisode.Title,
+                        donorEpisode.Overview ?? canonicalEpisode.Overview,
+                        donorEpisode.AirDate ?? canonicalEpisode.AirDate,
+                        donorEpisode.RuntimeMs ?? canonicalEpisode.RuntimeMs);
+                }
+
+                foreach (var source in donorEpisode.Sources.ToList())
+                    source.OwnedByEpisode(canonicalEpisode.Id);
+
+                donorSeason.DetachEpisode(donorEpisode);
+                removedEpisodeIds.Add(donorEpisode.Id);
+                uow.Media.RemoveEpisode(donorEpisode);
+            }
+        }
+
+        return removedEpisodeIds;
     }
 
     private async Task<MetadataLanguage> ResolveLanguageAsync(Guid libraryId, CancellationToken ct)

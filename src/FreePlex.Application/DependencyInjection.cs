@@ -22,6 +22,7 @@ public static class DependencyInjection
         services.AddScoped<MediaQueryService>();
         services.AddScoped<PlaybackService>();
         services.AddScoped<ProgressService>();
+        services.AddScoped<HistoryService>();
         services.AddScoped<HomeService>();
         services.AddScoped<JobService>();
         services.AddScoped<SettingsService>();

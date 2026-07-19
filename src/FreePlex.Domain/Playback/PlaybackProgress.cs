@@ -64,4 +64,73 @@ public class PlaybackProgress
         IsFavorite = favorite;
         UpdatedAt = now;
     }
+
+    /// <summary>
+    /// Explicitly marks the item watched or unwatched (manual toggle from clients).
+    /// Watched resets resume position; first transition to watched bumps play count.
+    /// </summary>
+    public void SetWatched(bool watched, DateTimeOffset now)
+    {
+        if (watched)
+        {
+            if (!Watched)
+                PlayCount++;
+            Watched = true;
+            PositionMs = 0;
+        }
+        else
+        {
+            Watched = false;
+            PositionMs = 0;
+        }
+
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Clears watch/resume state while preserving favorite flag (used by "clear history").
+    /// </summary>
+    public void ClearWatchHistory(DateTimeOffset now)
+    {
+        Watched = false;
+        PositionMs = 0;
+        PlayCount = 0;
+        DurationMs = null;
+        UpdatedAt = now;
+    }
+
+    /// <summary>
+    /// Applies an external watch snapshot (e.g. Plex import). Skips when local state is newer.
+    /// Returns whether the row was updated.
+    /// </summary>
+    public bool TryApplyImport(
+        bool watched,
+        long positionMs,
+        long? durationMs,
+        int playCount,
+        DateTimeOffset viewedAt)
+    {
+        if (viewedAt < UpdatedAt)
+            return false;
+
+        if (durationMs is not null)
+            DurationMs = durationMs;
+
+        if (watched)
+        {
+            Watched = true;
+            PositionMs = 0;
+            PlayCount = Math.Max(PlayCount, Math.Max(1, playCount));
+        }
+        else
+        {
+            Watched = false;
+            PositionMs = positionMs < 0 ? 0 : positionMs;
+            if (playCount > PlayCount)
+                PlayCount = playCount;
+        }
+
+        UpdatedAt = viewedAt;
+        return true;
+    }
 }
