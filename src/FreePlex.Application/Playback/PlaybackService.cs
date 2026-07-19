@@ -44,7 +44,8 @@ public sealed class PlaybackService(
             throw new RateLimitException("Maximum number of concurrent transcode sessions reached. Try again later.");
 
         var now = clock.GetUtcNow();
-        var sessionId = $"sess-{Guid.NewGuid():N}"[..13];
+        // Full GUID: a truncated id (32 bits) is both guessable and collision-prone.
+        var sessionId = $"sess-{Guid.NewGuid():N}";
         var session = sessions.Create(new PlaybackSession
         {
             SessionId = sessionId,

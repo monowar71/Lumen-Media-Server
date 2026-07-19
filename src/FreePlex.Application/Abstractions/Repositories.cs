@@ -1,5 +1,6 @@
 using FreePlex.Application.Common;
 using FreePlex.Application.Contracts;
+using FreePlex.Domain.Enums;
 using FreePlex.Domain.Jobs;
 using FreePlex.Domain.Libraries;
 using FreePlex.Domain.Media;
@@ -97,6 +98,12 @@ public interface IJobRepository
     Task AddAsync(BackgroundJob job, CancellationToken ct);
     Task<BackgroundJob?> GetByIdAsync(Guid id, CancellationToken ct);
     Task<PagedResult<BackgroundJob>> ListAsync(int page, int pageSize, CancellationToken ct);
+    /// <summary>Current persisted state, bypassing the local change tracker.</summary>
+    Task<JobState?> GetStateAsync(Guid id, CancellationToken ct);
+    /// <summary>Latest Queued/Running job of the given type for a library, if any.</summary>
+    Task<BackgroundJob?> FindActiveAsync(JobType type, Guid libraryId, CancellationToken ct);
+    /// <summary>Marks all Queued/Running jobs as Failed (startup recovery after a restart).</summary>
+    Task<int> FailUnfinishedAsync(string error, DateTimeOffset now, CancellationToken ct);
 }
 
 /// <summary>Aggregate of repositories sharing one unit-of-work (DbContext) transaction.</summary>
@@ -110,5 +117,14 @@ public interface IUnitOfWork
     Task<int> SaveChangesAsync(CancellationToken ct);
     /// <summary>Drops tracked entities so a failed insert cannot poison later saves in the same scope.</summary>
     void DiscardChanges();
-    Task<IAsyncDisposable> BeginTransactionAsync(CancellationToken ct);
+    Task<IAppTransaction> BeginTransactionAsync(CancellationToken ct);
+}
+
+/// <summary>
+/// Explicit-commit transaction: disposing without <see cref="CommitAsync"/> rolls back,
+/// so an exception inside the scope never commits partial writes.
+/// </summary>
+public interface IAppTransaction : IAsyncDisposable
+{
+    Task CommitAsync(CancellationToken ct);
 }

@@ -278,22 +278,24 @@ public sealed class FileSystemScanner(
 
     private static IEnumerable<string> EnumerateVideoFiles(IEnumerable<string> roots)
     {
+        // IgnoreInaccessible: one permission-denied subdirectory (common on NAS/Docker mounts)
+        // must not abort the whole scan. Enumeration exceptions surface during iteration,
+        // not when the enumerable is created, so a try around EnumerateFiles alone is useless.
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            // Keep parity with the previous SearchOption.AllDirectories behavior,
+            // which did not skip hidden/system entries.
+            AttributesToSkip = 0,
+        };
+
         foreach (var root in roots)
         {
             if (!Directory.Exists(root))
                 continue;
 
-            IEnumerable<string> files;
-            try
-            {
-                files = Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories);
-            }
-            catch (Exception)
-            {
-                continue;
-            }
-
-            foreach (var file in files)
+            foreach (var file in Directory.EnumerateFiles(root, "*", options))
             {
                 if (VideoExtensions.Contains(Path.GetExtension(file)))
                     yield return file;

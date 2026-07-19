@@ -75,7 +75,8 @@ public sealed class TvdbMetadataProvider(
 
             return await ParseSearchAsync(response, title, year, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // Timeout-safe: HttpClient timeout is an OCE without ct cancellation — swallow as failure.
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "TVDB search failed for {Title}", title);
             return [];
@@ -148,7 +149,8 @@ public sealed class TvdbMetadataProvider(
                 ReleaseDate: release,
                 RuntimeMs: runtimeMs);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // Timeout-safe: HttpClient timeout is an OCE without ct cancellation — swallow as failure.
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "TVDB details failed for {Id}", providerId);
             return null;
@@ -255,7 +257,8 @@ public sealed class TvdbMetadataProvider(
 
             return true;
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // Timeout-safe: HttpClient timeout is an OCE without ct cancellation — swallow as failure.
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "TVDB login request failed");
             return false;

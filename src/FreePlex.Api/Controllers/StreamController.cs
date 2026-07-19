@@ -100,7 +100,7 @@ public sealed class StreamController(
         var source = await playback.GetPlayableSourceAsync(caller, id, sourceId, ct);
 
         var roots = await ResolveLibraryRootsAsync(source, ct);
-        var fullPath = Path.GetFullPath(source.Path);
+        var fullPath = ResolveRealPath(source.Path);
         if (!System.IO.File.Exists(fullPath) || !IsUnderAnyRoot(fullPath, roots))
             return NotFound();
 
@@ -122,7 +122,7 @@ public sealed class StreamController(
         if (stream.IsExternal && !string.IsNullOrWhiteSpace(stream.ExternalPath))
         {
             var roots = await ResolveLibraryRootsAsync(source, ct);
-            var full = Path.GetFullPath(stream.ExternalPath);
+            var full = ResolveRealPath(stream.ExternalPath);
             if (!System.IO.File.Exists(full) || !IsUnderAnyRoot(full, roots))
                 return NotFound();
         }
@@ -263,7 +263,44 @@ public sealed class StreamController(
     }
 
     private static bool IsUnderAnyRoot(string fullPath, IEnumerable<string> roots) =>
-        roots.Any(root => IsUnderRoot(fullPath, Path.GetFullPath(root)));
+        roots.Any(root => IsUnderRoot(fullPath, ResolveRealPath(root)));
+
+    /// <summary>
+    /// Canonicalizes a path by resolving symlinks in every component (realpath semantics —
+    /// <see cref="Path.GetFullPath(string)"/> only normalizes lexically). A link planted inside
+    /// a library (e.g. from a torrent) therefore cannot escape the root prefix check. Library
+    /// roots are canonicalized the same way, so setups where the root itself is a symlink
+    /// (or files legitimately link within the library) keep working.
+    /// </summary>
+    private static string ResolveRealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full) ?? string.Empty;
+        var current = root;
+        foreach (var part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            FileSystemInfo info = Directory.Exists(current)
+                ? new DirectoryInfo(current)
+                : new FileInfo(current);
+            if (!info.Exists)
+                continue;
+
+            try
+            {
+                var target = info.ResolveLinkTarget(returnFinalTarget: true);
+                if (target is not null)
+                    current = target.FullName;
+            }
+            catch (IOException)
+            {
+                // Broken or cyclic link chain — keep the unresolved component; the
+                // subsequent File.Exists / prefix check will reject it.
+            }
+        }
+
+        return current;
+    }
 
     private static bool IsUnderRoot(string fullPath, string root)
     {

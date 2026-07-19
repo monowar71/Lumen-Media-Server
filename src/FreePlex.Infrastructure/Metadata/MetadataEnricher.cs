@@ -11,8 +11,62 @@ public sealed class HttpRemoteImageFetcher(IHttpClientFactory httpClientFactory)
     {
         var client = httpClientFactory.CreateClient("TmdbImages");
         var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
-        response.EnsureSuccessStatusCode();
-        return await response.Content.ReadAsStreamAsync(ct);
+        try
+        {
+            response.EnsureSuccessStatusCode();
+            var stream = await response.Content.ReadAsStreamAsync(ct);
+            // Disposing the stream disposes the response, so nothing leaks on the happy path.
+            return new ResponseOwningStream(stream, response);
+        }
+        catch
+        {
+            response.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>Ties the response lifetime to the content stream handed to the caller.</summary>
+    private sealed class ResponseOwningStream(Stream inner, HttpResponseMessage response) : Stream
+    {
+        public override bool CanRead => inner.CanRead;
+        public override bool CanSeek => inner.CanSeek;
+        public override bool CanWrite => inner.CanWrite;
+        public override long Length => inner.Length;
+
+        public override long Position
+        {
+            get => inner.Position;
+            set => inner.Position = value;
+        }
+
+        public override void Flush() => inner.Flush();
+        public override int Read(byte[] buffer, int offset, int count) => inner.Read(buffer, offset, count);
+        public override int Read(Span<byte> buffer) => inner.Read(buffer);
+
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default) =>
+            inner.ReadAsync(buffer, cancellationToken);
+
+        public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
+        public override void SetLength(long value) => inner.SetLength(value);
+        public override void Write(byte[] buffer, int offset, int count) => inner.Write(buffer, offset, count);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                inner.Dispose();
+                response.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
+
+        public override async ValueTask DisposeAsync()
+        {
+            await inner.DisposeAsync();
+            response.Dispose();
+            await base.DisposeAsync();
+        }
     }
 }
 
@@ -196,8 +250,9 @@ public sealed class MetadataEnricher(
         try
         {
             await using var stream = await images.OpenReadAsync(url, ct);
-            // Buffer to a memory stream so SaveAsync can rewind if needed; posters are small.
-            await using var buffer = new MemoryStream();
+            // Buffer to a memory stream so SaveAsync can rewind if needed; posters are small,
+            // but the URL comes from external providers — cap the size to protect memory.
+            await using var buffer = new BoundedMemoryStream(MaxArtworkBytes);
             await stream.CopyToAsync(buffer, ct);
             buffer.Position = 0;
             var path = await artworkStore.SaveAsync(item.Id, kind, buffer, ct);
@@ -216,9 +271,39 @@ public sealed class MetadataEnricher(
             // against a missing row (DbUpdateConcurrencyException) and posters never appear in the UI.
             await uow.Media.AddArtworkAsync(art, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "Failed to download {Kind} for {ItemId} from {Url}", kind, item.Id, url);
+        }
+    }
+
+    private const int MaxArtworkBytes = 20 * 1024 * 1024;
+
+    /// <summary>MemoryStream that throws instead of growing past the limit.</summary>
+    private sealed class BoundedMemoryStream(int maxBytes) : MemoryStream
+    {
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            EnsureCapacityAllowed(count);
+            base.Write(buffer, offset, count);
+        }
+
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            EnsureCapacityAllowed(buffer.Length);
+            base.Write(buffer);
+        }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            EnsureCapacityAllowed(buffer.Length);
+            return base.WriteAsync(buffer, cancellationToken);
+        }
+
+        private void EnsureCapacityAllowed(int incoming)
+        {
+            if (Length + incoming > maxBytes)
+                throw new InvalidOperationException($"Artwork exceeds the {maxBytes / (1024 * 1024)} MB limit.");
         }
     }
 }

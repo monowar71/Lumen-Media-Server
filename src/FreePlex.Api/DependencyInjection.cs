@@ -2,18 +2,23 @@ using FreePlex.Api.OpenApi;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using FreePlex.Api.Errors;
 using FreePlex.Api.Realtime;
 using FreePlex.Application.Abstractions;
 using FreePlex.Infrastructure.Configuration;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 
 namespace FreePlex.Api;
 
 public static class DependencyInjection
 {
-    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration config)
+    /// <summary>Applied to credential endpoints (login/refresh/setup) to slow brute force.</summary>
+    public const string AuthRateLimitPolicy = "auth";
+
+    public static IServiceCollection AddApi(this IServiceCollection services, IConfiguration config, IHostEnvironment env)
     {
         services.AddControllers()
             .AddJsonOptions(o =>
@@ -33,27 +38,62 @@ public static class DependencyInjection
         services.AddSingleton<IRealtimeNotifier, SignalRRealtimeNotifier>();
 
         // Web client (Vite) and other browsers cannot call the API without CORS.
+        // Cors:AllowedOrigins (array) restricts browsers to known origins; when it is not
+        // configured we keep the permissive reflect-any-origin behavior for LAN setups.
+        var allowedOrigins = config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
         services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy =>
-                policy.AllowAnyHeader()
-                    .AllowAnyMethod()
-                    .AllowCredentials()
-                    .SetIsOriginAllowed(_ => true));
+            {
+                policy.AllowAnyHeader().AllowAnyMethod().AllowCredentials();
+                if (allowedOrigins.Length > 0)
+                    policy.WithOrigins(allowedOrigins).SetIsOriginAllowedToAllowWildcardSubdomains();
+                else
+                    policy.SetIsOriginAllowed(_ => true);
+            });
         });
 
         services.AddExceptionHandler<AppExceptionHandler>();
         services.AddProblemDetails();
 
+        // Per-IP limiter on credential endpoints: PBKDF2 alone does not stop online brute force.
+        services.AddRateLimiter(limiter =>
+        {
+            limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+            limiter.AddPolicy(AuthRateLimitPolicy, httpContext =>
+                RateLimitPartition.GetFixedWindowLimiter(
+                    httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 10,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                    }));
+        });
+
         var jwt = new JwtOptions();
         config.GetSection(JwtOptions.SectionName).Bind(jwt);
+        const int minSecretBytes = 32; // HS256 key must be at least 256 bits.
         if (string.IsNullOrWhiteSpace(jwt.Secret))
         {
-            // Never ship a default in production; generate an ephemeral dev key so the app can boot.
+            if (env.IsProduction())
+            {
+                throw new InvalidOperationException(
+                    "Jwt:Secret is required in Production (set the JWT__SECRET environment variable, "
+                    + $"at least {minSecretBytes} bytes). Refusing to generate an ephemeral key: "
+                    + "all sessions would be silently invalidated on every restart.");
+            }
+
+            // Dev/test convenience: generate an ephemeral key so the app can boot.
             jwt.Secret = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(48));
             // Persist it back so the Infrastructure token service (IOptions<JwtOptions>) SIGNS with the
             // same key we VALIDATE with here — otherwise issuing crashes / tokens don't validate.
             config[$"{JwtOptions.SectionName}:Secret"] = jwt.Secret;
+        }
+        else if (Encoding.UTF8.GetByteCount(jwt.Secret) < minSecretBytes)
+        {
+            throw new InvalidOperationException(
+                $"Jwt:Secret is too short: HS256 requires at least {minSecretBytes} bytes.");
         }
 
         var signingKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Secret));

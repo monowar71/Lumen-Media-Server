@@ -1,5 +1,6 @@
 using FluentAssertions;
 using FreePlex.Domain.Enums;
+using FreePlex.Domain.Jobs;
 using FreePlex.Domain.Media;
 using FreePlex.Domain.Playback;
 using FreePlex.Domain.Users;
@@ -59,5 +60,38 @@ public class EntityTests
 
         progress.Watched.Should().BeFalse();
         progress.PositionMs.Should().Be(4000);
+    }
+
+    [Fact]
+    public void Job_can_be_cancelled_while_queued_or_running()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        var queued = new BackgroundJob(JobType.ScanLibrary, now);
+        queued.Cancel(now).Should().BeTrue();
+        queued.State.Should().Be(JobState.Cancelled);
+
+        var running = new BackgroundJob(JobType.ScanLibrary, now);
+        running.Start(now);
+        running.Cancel(now).Should().BeTrue();
+        running.State.Should().Be(JobState.Cancelled);
+    }
+
+    [Fact]
+    public void Job_cancel_does_not_overwrite_finished_states()
+    {
+        var now = DateTimeOffset.UtcNow;
+
+        var succeeded = new BackgroundJob(JobType.ScanLibrary, now);
+        succeeded.Start(now);
+        succeeded.Succeed(now);
+        succeeded.Cancel(now).Should().BeFalse();
+        succeeded.State.Should().Be(JobState.Succeeded);
+
+        var failed = new BackgroundJob(JobType.ScanLibrary, now);
+        failed.Start(now);
+        failed.Fail("boom", now);
+        failed.Cancel(now).Should().BeFalse();
+        failed.State.Should().Be(JobState.Failed);
     }
 }

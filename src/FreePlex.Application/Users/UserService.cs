@@ -8,6 +8,10 @@ namespace FreePlex.Application.Users;
 
 public sealed class UserService(IUnitOfWork uow, IPasswordHasher passwordHasher, TimeProvider clock)
 {
+    // Keep in sync with AuthService.Validate (first-run setup).
+    private const int MinPasswordLength = 8;
+    private const string PasswordLengthError = "Password must be at least 8 characters.";
+
     public async Task<IReadOnlyList<UserDto>> ListAsync(CancellationToken ct)
     {
         var users = await uow.Users.ListAsync(ct);
@@ -19,8 +23,8 @@ public sealed class UserService(IUnitOfWork uow, IPasswordHasher passwordHasher,
         var errors = new Dictionary<string, string[]>();
         if (string.IsNullOrWhiteSpace(request.Username) || request.Username.Trim().Length < 3)
             errors["username"] = ["Username must be at least 3 characters."];
-        if (string.IsNullOrEmpty(request.Password) || request.Password.Length < 6)
-            errors["password"] = ["Password must be at least 6 characters."];
+        if (string.IsNullOrEmpty(request.Password) || request.Password.Length < MinPasswordLength)
+            errors["password"] = [PasswordLengthError];
         if (errors.Count > 0)
             throw new ValidationException(errors);
 
@@ -48,9 +52,13 @@ public sealed class UserService(IUnitOfWork uow, IPasswordHasher passwordHasher,
         var user = await uow.Users.GetByIdAsync(id, ct)
                    ?? throw new NotFoundException("User not found.");
         var now = clock.GetUtcNow();
+        var revokeSessions = false;
 
-        if (request.Role is not null)
+        if (request.Role is not null && request.Role.Value != user.Role)
+        {
             user.SetRole(request.Role.Value, now);
+            revokeSessions = true; // old refresh tokens must not keep minting the old role
+        }
 
         if (request.LibraryAccessAll is not null || request.LibraryAccess is not null)
         {
@@ -68,13 +76,20 @@ public sealed class UserService(IUnitOfWork uow, IPasswordHasher passwordHasher,
 
         if (!string.IsNullOrWhiteSpace(request.Password))
         {
-            if (request.Password.Length < 6)
-                throw new ValidationException("password", "Password must be at least 6 characters.");
+            if (request.Password.Length < MinPasswordLength)
+                throw new ValidationException("password", PasswordLengthError);
             user.SetPassword(passwordHasher.Hash(request.Password), now);
+            revokeSessions = true; // a stolen refresh token must not survive a password change
         }
 
         if (request.Pin is not null)
             user.SetPin(string.IsNullOrWhiteSpace(request.Pin) ? null : passwordHasher.Hash(request.Pin), now);
+
+        if (revokeSessions)
+        {
+            foreach (var token in await uow.Users.GetActiveRefreshTokensAsync(user.Id, ct))
+                token.Revoke(now);
+        }
 
         await uow.SaveChangesAsync(ct);
         return UserMapper.Map(user);

@@ -15,6 +15,9 @@ public sealed record ProbeResult(long? DurationMs, int? OverallBitrateKbps, IRea
 /// </summary>
 public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
 {
+    /// <summary>Hard cap per probe: a file on a dead network mount must not stall a worker.</summary>
+    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(30);
+
     private bool _unavailable;
 
     public async Task<ProbeResult?> ProbeAsync(string path, CancellationToken ct)
@@ -22,6 +25,7 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
         if (_unavailable)
             return null;
 
+        Process? process = null;
         try
         {
             var psi = new ProcessStartInfo
@@ -40,10 +44,17 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
             psi.ArgumentList.Add("-show_streams");
             psi.ArgumentList.Add(path);
 
-            using var process = new Process { StartInfo = psi };
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeoutCts.CancelAfter(ProbeTimeout);
+
+            process = new Process { StartInfo = psi };
             process.Start();
-            var json = await process.StandardOutput.ReadToEndAsync(ct);
-            await process.WaitForExitAsync(ct);
+            // stderr must be drained too: a full pipe buffer deadlocks the child process.
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+            var stderrTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+            await process.WaitForExitAsync(timeoutCts.Token);
+            var json = await stdoutTask;
+            _ = await stderrTask;
 
             if (process.ExitCode != 0 || string.IsNullOrWhiteSpace(json))
                 return null;
@@ -57,10 +68,33 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
             logger.LogWarning("ffprobe binary not found; media stream metadata will be minimal.");
             return null;
         }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            logger.LogWarning("ffprobe timed out after {Timeout}s for {Path}", ProbeTimeout.TotalSeconds, path);
+            return null;
+        }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "ffprobe failed for {Path}", path);
             return null;
+        }
+        finally
+        {
+            // On timeout/cancel the child would otherwise be orphaned and keep the mount busy.
+            if (process is not null)
+            {
+                try
+                {
+                    if (!process.HasExited)
+                        process.Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // Process may have exited in between; nothing to clean up.
+                }
+
+                process.Dispose();
+            }
         }
     }
 

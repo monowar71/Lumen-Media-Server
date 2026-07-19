@@ -1,5 +1,6 @@
 using FreePlex.Application.Abstractions;
 using FreePlex.Application.Common;
+using FreePlex.Domain.Enums;
 using FreePlex.Domain.Jobs;
 using FreePlex.Domain.Playback;
 using Microsoft.EntityFrameworkCore;
@@ -38,4 +39,28 @@ public sealed class JobRepository(FreePlexDbContext db) : IJobRepository
         var items = await query.Skip((page - 1) * pageSize).Take(pageSize).ToListAsync(ct);
         return new PagedResult<BackgroundJob>(items, page, pageSize, total);
     }
+
+    public Task<BackgroundJob?> FindActiveAsync(JobType type, Guid libraryId, CancellationToken ct) =>
+        db.BackgroundJobs.AsNoTracking()
+            .Where(j => j.Type == type
+                        && j.LibraryId == libraryId
+                        && (j.State == JobState.Queued || j.State == JobState.Running))
+            .OrderByDescending(j => j.CreatedAt)
+            .FirstOrDefaultAsync(ct);
+
+    public Task<JobState?> GetStateAsync(Guid id, CancellationToken ct) =>
+        db.BackgroundJobs.AsNoTracking()
+            .Where(j => j.Id == id)
+            .Select(j => (JobState?)j.State)
+            .FirstOrDefaultAsync(ct);
+
+    public Task<int> FailUnfinishedAsync(string error, DateTimeOffset now, CancellationToken ct) =>
+        db.BackgroundJobs
+            .Where(j => j.State == JobState.Queued || j.State == JobState.Running)
+            .ExecuteUpdateAsync(
+                s => s
+                    .SetProperty(j => j.State, JobState.Failed)
+                    .SetProperty(j => j.Error, error)
+                    .SetProperty(j => j.FinishedAt, now),
+                ct);
 }

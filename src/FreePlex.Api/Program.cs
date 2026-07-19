@@ -11,15 +11,18 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
-builder.Services.AddApi(builder.Configuration);
+builder.Services.AddApi(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 
 EnsureStorageDirectories(app);
 ApplyMigrations(app);
+await RecoverInterruptedJobsAsync(app);
+WarnIfCorsIsPermissive(app);
 
 app.UseExceptionHandler();
 app.UseCors();
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -62,6 +65,35 @@ static void ApplyMigrations(WebApplication app)
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<FreePlexDbContext>();
     db.Database.Migrate();
+}
+
+static void WarnIfCorsIsPermissive(WebApplication app)
+{
+    if (app.Environment.IsProduction()
+        && (app.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? []).Length == 0)
+    {
+        app.Services.GetRequiredService<ILogger<Program>>().LogWarning(
+            "Cors:AllowedOrigins is not configured — any browser origin is allowed. "
+            + "Set it when the server is reachable from the internet.");
+    }
+}
+
+// The job queue is in-memory: jobs left Queued/Running by a previous process are lost
+// and would otherwise stay "running" in the journal forever.
+static async Task RecoverInterruptedJobsAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var uow = scope.ServiceProvider.GetRequiredService<FreePlex.Application.Abstractions.IUnitOfWork>();
+    var clock = scope.ServiceProvider.GetRequiredService<TimeProvider>();
+    var recovered = await uow.Jobs.FailUnfinishedAsync(
+        "Interrupted by server restart.",
+        clock.GetUtcNow(),
+        CancellationToken.None);
+    if (recovered > 0)
+    {
+        app.Services.GetRequiredService<ILogger<Program>>()
+            .LogWarning("Marked {Count} interrupted job(s) as Failed after restart", recovered);
+    }
 }
 
 // Exposed for WebApplicationFactory in integration tests.

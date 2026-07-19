@@ -44,7 +44,8 @@ public sealed class JobService(IUnitOfWork uow, TimeProvider clock)
     {
         var job = await uow.Jobs.GetByIdAsync(id, ct)
                   ?? throw new NotFoundException("Job not found.");
-        job.Cancel(clock.GetUtcNow());
+        if (!job.Cancel(clock.GetUtcNow()))
+            throw new ConflictException($"Job is already {job.State} and cannot be cancelled.");
         await uow.SaveChangesAsync(ct);
         return JobMapper.Map(job);
     }

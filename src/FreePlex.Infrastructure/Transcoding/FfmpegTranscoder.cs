@@ -417,6 +417,10 @@ public static class FfmpegArgumentBuilder
         if (encodeVideo)
         {
             var encoder = useVaapi ? "h264_vaapi" : SelectVideoEncoder(opts.HardwareAccel);
+            // Burn-in disables useVaapi above, but SelectVideoEncoder would still return
+            // h264_vaapi — which fails without an initialized hw device. Software fallback.
+            if (!useVaapi && encoder == "h264_vaapi")
+                encoder = "libx264";
             args.Add("-c:v");
             args.Add(encoder);
 

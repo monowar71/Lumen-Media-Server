@@ -60,7 +60,8 @@ public sealed partial class TvMazeMetadataProvider(
                 .Take(10)
                 .ToList();
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // Timeout-safe: HttpClient timeout is an OCE without ct cancellation — swallow as failure.
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "TVMaze search failed for {Title}", title);
             return [];
@@ -102,7 +103,8 @@ public sealed partial class TvMazeMetadataProvider(
                 ReleaseDate: DateOnly.TryParse(show.Premiered, CultureInfo.InvariantCulture, DateTimeStyles.None, out var d) ? d : null,
                 RuntimeMs: show.Runtime is > 0 ? show.Runtime.Value * 60_000L : null);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // Timeout-safe: HttpClient timeout is an OCE without ct cancellation — swallow as failure.
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "TVMaze details failed for {Id}", providerId);
             return null;

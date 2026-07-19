@@ -38,10 +38,17 @@ public sealed class JobWorker(
             {
                 await HandleAsync(request, ct);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
+                // Host shutdown. Startup recovery marks the interrupted job on next boot.
+                break;
+            }
+            catch (Exception ex)
+            {
+                // Any other exception — including HttpClient timeouts (TaskCanceledException
+                // without host cancellation) — must never kill the consumer loop.
                 logger.LogError(ex, "Job {JobId} ({Type}) failed", request.JobId, request.Type);
-                await MarkFailedAsync(request.JobId, ex.Message, ct);
+                await MarkFailedAsync(request.JobId, ex.Message, CancellationToken.None);
             }
         }
     }
@@ -66,82 +73,99 @@ public sealed class JobWorker(
         switch (request.Type)
         {
             case JobType.ScanLibrary when request.LibraryId is not null:
-                var scanner = scope.ServiceProvider.GetRequiredService<IMediaScanner>();
-                var progress = new Progress<double>(p =>
                 {
-                    job.Report(p, $"Scanning… {p:P0}");
-                    _ = SafeNotifyJobAsync(notifier, job, ct);
-                });
-                scanResult = await scanner.ScanAsync(request.LibraryId.Value, progress, ct);
-                job.Succeed(clock.GetUtcNow(), $"Added {scanResult.Added}, updated {scanResult.Updated}, removed {scanResult.Removed}.");
-                break;
-
-            case JobType.FetchMetadata:
-            {
-                // Separate DI scope so enrichment's DbContext does not fight with the
-                // tracked BackgroundJob entity in this worker scope (SQLite concurrency).
-                using var enrichScope = scopeFactory.CreateScope();
-                var enricher = enrichScope.ServiceProvider.GetRequiredService<IMetadataEnricher>();
-                var (itemId, provider, providerId) = ParseMetadataPayload(request.PayloadJson);
-                if (itemId is null)
-                {
-                    job.Fail("FetchMetadata payload missing itemId.", clock.GetUtcNow());
+                    // Separate DI scope: the scanner calls DiscardChanges on failed imports, which
+                    // would detach the tracked job entity and silently drop its final state.
+                    using var scanScope = scopeFactory.CreateScope();
+                    var scanner = scanScope.ServiceProvider.GetRequiredService<IMediaScanner>();
+                    // Inline (synchronous) progress: Progress<T> posts to the thread pool, racing
+                    // job mutation against this scope's DbContext. Inline keeps it single-threaded.
+                    var progress = new InlineProgress(p =>
+                    {
+                        job.Report(p, $"Scanning… {p:P0}");
+                        _ = SafeNotifyJobAsync(notifier, job, ct);
+                    });
+                    scanResult = await scanner.ScanAsync(request.LibraryId.Value, progress, ct);
+                    job.Succeed(clock.GetUtcNow(), $"Added {scanResult.Added}, updated {scanResult.Updated}, removed {scanResult.Removed}.");
                     break;
                 }
 
-                var ok = await enricher.EnrichAsync(itemId.Value, provider, providerId, ct);
-                var item = await uow.Media.GetByIdAsync(itemId.Value, ct);
-                enrichedLibraryId = item?.LibraryId;
-                job.Succeed(clock.GetUtcNow(), ok ? "Metadata applied." : "No metadata match.");
-                break;
-            }
+            case JobType.FetchMetadata:
+                {
+                    // Separate DI scope so enrichment's DbContext does not fight with the
+                    // tracked BackgroundJob entity in this worker scope (SQLite concurrency).
+                    using var enrichScope = scopeFactory.CreateScope();
+                    var enricher = enrichScope.ServiceProvider.GetRequiredService<IMetadataEnricher>();
+                    var (itemId, provider, providerId) = ParseMetadataPayload(request.PayloadJson);
+                    if (itemId is null)
+                    {
+                        job.Fail("FetchMetadata payload missing itemId.", clock.GetUtcNow());
+                        break;
+                    }
+
+                    var ok = await enricher.EnrichAsync(itemId.Value, provider, providerId, ct);
+                    var item = await uow.Media.GetByIdAsync(itemId.Value, ct);
+                    enrichedLibraryId = item?.LibraryId;
+                    job.Succeed(clock.GetUtcNow(), ok ? "Metadata applied." : "No metadata match.");
+                    break;
+                }
 
             case JobType.CleanupTranscodes:
-            {
-                var sessions = scope.ServiceProvider.GetRequiredService<IPlaybackSessionStore>();
-                var transcoderSvc = scope.ServiceProvider.GetRequiredService<ITranscoder>();
-                var paths = scope.ServiceProvider.GetRequiredService<IOptions<PathsOptions>>();
-                var opts = scope.ServiceProvider.GetRequiredService<IOptions<FreePlex.Application.Playback.PlaybackOptions>>();
-                var now = clock.GetUtcNow();
-                var idle = TimeSpan.FromSeconds(Math.Max(30, opts.Value.IdleTimeoutSec));
-                var cleaned = 0;
-                foreach (var session in sessions.ActiveSessions.ToArray())
                 {
-                    if (session.ExpiresAt > now && now - session.LastAccess <= idle)
-                        continue;
-                    await transcoderSvc.StopAsync(session.SessionId, ct);
-                    sessions.Remove(session.SessionId);
-                    cleaned++;
-                }
-
-                var root = paths.Value.Transcodes;
-                if (Directory.Exists(root))
-                {
-                    var active = sessions.ActiveSessions.Select(s => s.SessionId).ToHashSet(StringComparer.Ordinal);
-                    foreach (var dir in Directory.EnumerateDirectories(root))
+                    var sessions = scope.ServiceProvider.GetRequiredService<IPlaybackSessionStore>();
+                    var transcoderSvc = scope.ServiceProvider.GetRequiredService<ITranscoder>();
+                    var paths = scope.ServiceProvider.GetRequiredService<IOptions<PathsOptions>>();
+                    var opts = scope.ServiceProvider.GetRequiredService<IOptions<FreePlex.Application.Playback.PlaybackOptions>>();
+                    var now = clock.GetUtcNow();
+                    var idle = TimeSpan.FromSeconds(Math.Max(30, opts.Value.IdleTimeoutSec));
+                    var cleaned = 0;
+                    foreach (var session in sessions.ActiveSessions.ToArray())
                     {
-                        var name = Path.GetFileName(dir);
-                        if (name is "bench" || active.Contains(name) || !name.StartsWith("sess-", StringComparison.OrdinalIgnoreCase))
+                        if (session.ExpiresAt > now && now - session.LastAccess <= idle)
                             continue;
-                        try
+                        await transcoderSvc.StopAsync(session.SessionId, ct);
+                        sessions.Remove(session.SessionId);
+                        cleaned++;
+                    }
+
+                    var root = paths.Value.Transcodes;
+                    if (Directory.Exists(root))
+                    {
+                        var active = sessions.ActiveSessions.Select(s => s.SessionId).ToHashSet(StringComparer.Ordinal);
+                        foreach (var dir in Directory.EnumerateDirectories(root))
                         {
-                            Directory.Delete(dir, recursive: true);
-                            cleaned++;
-                        }
-                        catch
-                        {
-                            // best-effort
+                            var name = Path.GetFileName(dir);
+                            if (name is "bench" || active.Contains(name) || !name.StartsWith("sess-", StringComparison.OrdinalIgnoreCase))
+                                continue;
+                            try
+                            {
+                                Directory.Delete(dir, recursive: true);
+                                cleaned++;
+                            }
+                            catch
+                            {
+                                // best-effort
+                            }
                         }
                     }
-                }
 
-                job.Succeed(clock.GetUtcNow(), $"Cleaned {cleaned} session(s)/dir(s).");
-                break;
-            }
+                    job.Succeed(clock.GetUtcNow(), $"Cleaned {cleaned} session(s)/dir(s).");
+                    break;
+                }
 
             default:
                 job.Succeed(clock.GetUtcNow(), "No-op (handler not implemented in this phase).");
                 break;
+        }
+
+        // The admin may have cancelled the job (different DbContext) while it ran;
+        // do not overwrite Cancelled with Succeeded.
+        var persistedState = await uow.Jobs.GetStateAsync(job.Id, ct);
+        if (persistedState == JobState.Cancelled)
+        {
+            uow.DiscardChanges();
+            logger.LogInformation("Job {JobId} ({Type}) was cancelled while running", request.JobId, request.Type);
+            return;
         }
 
         await uow.SaveChangesAsync(ct);
@@ -241,5 +265,14 @@ public sealed class JobWorker(
         {
             logger.LogWarning(ex, "Failed to broadcast {Event} for job {JobId}", eventName, jobId);
         }
+    }
+
+    /// <summary>
+    /// Invokes the callback inline on the reporting thread. Unlike <see cref="Progress{T}"/>,
+    /// which posts to the thread pool, this cannot race EF Core entities across threads.
+    /// </summary>
+    private sealed class InlineProgress(Action<double> callback) : IProgress<double>
+    {
+        public void Report(double value) => callback(value);
     }
 }

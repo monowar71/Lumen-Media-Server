@@ -15,17 +15,27 @@ public sealed class UnitOfWork(FreePlexDbContext db) : IUnitOfWork
 
     public void DiscardChanges() => db.ChangeTracker.Clear();
 
-    public async Task<IAsyncDisposable> BeginTransactionAsync(CancellationToken ct)
+    public async Task<IAppTransaction> BeginTransactionAsync(CancellationToken ct)
     {
         var tx = await db.Database.BeginTransactionAsync(ct);
         return new TransactionScope(tx);
     }
 
-    private sealed class TransactionScope(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx) : IAsyncDisposable
+    private sealed class TransactionScope(Microsoft.EntityFrameworkCore.Storage.IDbContextTransaction tx) : IAppTransaction
     {
+        private bool _committed;
+
+        public async Task CommitAsync(CancellationToken ct)
+        {
+            await tx.CommitAsync(ct);
+            _committed = true;
+        }
+
         public async ValueTask DisposeAsync()
         {
-            await tx.CommitAsync();
+            // Dispose without an explicit commit means the scope failed — roll back.
+            if (!_committed)
+                await tx.RollbackAsync();
             await tx.DisposeAsync();
         }
     }

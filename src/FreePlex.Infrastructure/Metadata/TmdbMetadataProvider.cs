@@ -165,7 +165,9 @@ public sealed class TmdbMetadataProvider(
 
             return await response.Content.ReadFromJsonAsync<T>(JsonOptions, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        // HttpClient timeouts throw TaskCanceledException without ct being cancelled;
+        // treat them as provider failures, propagate only real cancellation.
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             logger.LogWarning(ex, "TMDB request failed for {Path}", path);
             return default;

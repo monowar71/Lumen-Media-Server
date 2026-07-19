@@ -57,9 +57,13 @@ public class BackgroundJob
         FinishedAt = now;
     }
 
-    public void Cancel(DateTimeOffset now)
+    /// <summary>Only pending/running jobs can be cancelled; finished ones keep their state.</summary>
+    public bool Cancel(DateTimeOffset now)
     {
+        if (State is not (JobState.Queued or JobState.Running))
+            return false;
         State = JobState.Cancelled;
         FinishedAt = now;
+        return true;
     }
 }

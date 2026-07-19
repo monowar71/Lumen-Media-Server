@@ -103,6 +103,11 @@ public sealed class LibraryService(
         var lib = await uow.Libraries.GetByIdAsync(id, ct)
                   ?? throw new NotFoundException("Library not found.");
 
+        // Concurrent scans of one library race on series creation; return the active job instead.
+        var active = await uow.Jobs.FindActiveAsync(JobType.ScanLibrary, lib.Id, ct);
+        if (active is not null)
+            return JobMapper.Map(active);
+
         var now = clock.GetUtcNow();
         var payload = JsonSerializer.Serialize(new { libraryId = lib.Id });
         var job = new BackgroundJob(JobType.ScanLibrary, now, lib.Id, payload);

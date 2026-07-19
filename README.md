@@ -92,9 +92,14 @@ docker run --rm -p 8096:8096 -v freeplex-config:/config -v /path/to/media:/media
 | `FreePlex:Paths:Config` | `FREEPLEX__Paths__Config` | `/config` |
 | `FreePlex:Paths:Transcodes` | `FREEPLEX__Paths__Transcodes` | `/config/transcodes` |
 | `FreePlex:Transcoding:*` | `FREEPLEX__Transcoding__*` | см. `appsettings.json` |
-| `Jwt:Secret` | `JWT__SECRET` | **обязателен в проде** (иначе генерируется эфемерный ключ) |
+| `Jwt:Secret` | `JWT__SECRET` | **обязателен в Production** (min 32 байта; при отсутствии сервер не стартует). Вне Production генерируется эфемерный ключ |
+| `Cors:AllowedOrigins` | `CORS__ALLOWEDORIGINS__0` … | пусто = разрешён любой origin (LAN-режим); для интернет-доступа задайте список origin'ов |
 
 > Секреты (`Jwt:Secret`, ключи TMDB/TVDB) — только через env/user-secrets, никогда в репозитории или логах.
+>
+> Логин/refresh/setup ограничены rate limiter'ом: 10 запросов в минуту с одного IP (429 при превышении).
+>
+> Продакшн-образ работает от непривилегированного пользователя `app`. Для HW-транскодирования пробросьте GPU: `--device /dev/dri --group-add video` (при необходимости и `--group-add render`). Bind-mount'ы `/config`, `/media`, `/downloads` должны быть доступны на запись UID 1654 (`app`).
 
 ## Первый запуск
 
