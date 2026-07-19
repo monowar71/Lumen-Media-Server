@@ -23,7 +23,8 @@ public sealed record PlexWatchEntry(
     long PositionMs,
     long? DurationMs,
     int PlayCount,
-    DateTimeOffset ViewedAt);
+    DateTimeOffset ViewedAt,
+    string? SeriesTitle = null);
 
 public enum PlexWatchKind
 {

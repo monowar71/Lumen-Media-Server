@@ -101,6 +101,7 @@ public class PlaybackProgress
 
     /// <summary>
     /// Applies an external watch snapshot (e.g. Plex import). Skips when local state is newer.
+    /// Equal timestamps still apply so resume offsets from Plex can refresh local progress.
     /// Returns whether the row was updated.
     /// </summary>
     public bool TryApplyImport(
@@ -113,6 +114,22 @@ public class PlaybackProgress
         if (viewedAt < UpdatedAt)
             return false;
 
+        var nextPosition = watched ? 0L : (positionMs < 0 ? 0 : positionMs);
+        var nextPlayCount = watched
+            ? Math.Max(PlayCount, Math.Max(1, playCount))
+            : Math.Max(PlayCount, playCount);
+        var nextDuration = durationMs ?? DurationMs;
+
+        // Idempotent no-op when nothing would change (avoids inflated "imported" counts).
+        if (Watched == watched
+            && PositionMs == nextPosition
+            && PlayCount == nextPlayCount
+            && DurationMs == nextDuration
+            && UpdatedAt == viewedAt)
+        {
+            return false;
+        }
+
         if (durationMs is not null)
             DurationMs = durationMs;
 
@@ -120,14 +137,13 @@ public class PlaybackProgress
         {
             Watched = true;
             PositionMs = 0;
-            PlayCount = Math.Max(PlayCount, Math.Max(1, playCount));
+            PlayCount = nextPlayCount;
         }
         else
         {
             Watched = false;
-            PositionMs = positionMs < 0 ? 0 : positionMs;
-            if (playCount > PlayCount)
-                PlayCount = playCount;
+            PositionMs = nextPosition;
+            PlayCount = nextPlayCount;
         }
 
         UpdatedAt = viewedAt;

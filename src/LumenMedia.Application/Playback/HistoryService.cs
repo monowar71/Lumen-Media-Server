@@ -146,6 +146,9 @@ public sealed class HistoryService(
         var imported = 0;
         var skippedNewer = 0;
         var unmatched = 0;
+        // Cache progress rows for this import so duplicate Plex entries (library + history)
+        // reuse the same tracked entity before SaveChanges.
+        var progressByMedia = new Dictionary<Guid, PlaybackProgress>();
 
         foreach (var entry in entries)
         {
@@ -158,15 +161,19 @@ public sealed class HistoryService(
 
             matched++;
             var (mediaId, kind) = target.Value;
-            var progress = await uow.Progress.GetAsync(userId, mediaId, ct);
-            if (progress is null)
+            if (!progressByMedia.TryGetValue(mediaId, out var progress))
             {
-                progress = new PlaybackProgress(userId, mediaId, kind, entry.ViewedAt);
-                await uow.Progress.AddAsync(progress, ct);
-                // New row starts with UpdatedAt = viewedAt from ctor; ApplyImport still needed for state.
-                // Ctor sets UpdatedAt but leaves Watched=false — force apply by using viewedAt.
+                progress = await uow.Progress.GetAsync(userId, mediaId, ct);
+                if (progress is null)
+                {
+                    progress = new PlaybackProgress(userId, mediaId, kind, entry.ViewedAt);
+                    await uow.Progress.AddAsync(progress, ct);
+                }
+
+                progressByMedia[mediaId] = progress;
             }
 
+            var localUpdatedAt = progress.UpdatedAt;
             var applied = progress.TryApplyImport(
                 entry.Watched,
                 entry.PositionMs,
@@ -176,7 +183,7 @@ public sealed class HistoryService(
 
             if (applied)
                 imported++;
-            else
+            else if (entry.ViewedAt < localUpdatedAt)
                 skippedNewer++;
         }
 
@@ -198,6 +205,8 @@ public sealed class HistoryService(
         if (entry.Kind == PlexWatchKind.Movie)
         {
             var movie = await uow.Media.FindMovieByExternalIdsAsync(entry.TmdbId, entry.TvdbId, entry.ImdbId, ct);
+            if (movie is null && !string.IsNullOrWhiteSpace(entry.Title))
+                movie = await uow.Media.FindMovieByTitleAsync(entry.Title, ct);
             return movie is null ? null : (movie.Id, MediaKind.Movie);
         }
 
@@ -205,6 +214,8 @@ public sealed class HistoryService(
             return null;
 
         var series = await uow.Media.FindSeriesByExternalIdsAsync(entry.TmdbId, entry.TvdbId, entry.ImdbId, ct);
+        if (series is null && !string.IsNullOrWhiteSpace(entry.SeriesTitle))
+            series = await uow.Media.FindSeriesByTitleAsync(entry.SeriesTitle, ct);
         if (series is null)
             return null;
 

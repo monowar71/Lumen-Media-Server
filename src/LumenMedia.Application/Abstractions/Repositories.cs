@@ -53,6 +53,12 @@ public interface IMediaRepository
     /// <summary>Finds a series by TMDB/TVDB/IMDB id (first non-null match wins, TMDB preferred).</summary>
     Task<Series?> FindSeriesByExternalIdsAsync(string? tmdbId, string? tvdbId, string? imdbId, CancellationToken ct);
 
+    /// <summary>Exact title/original-title match for Plex history fallback (case-insensitive).</summary>
+    Task<Movie?> FindMovieByTitleAsync(string title, CancellationToken ct);
+
+    /// <summary>Exact title/original-title match for Plex history fallback (case-insensitive).</summary>
+    Task<Series?> FindSeriesByTitleAsync(string title, CancellationToken ct);
+
     /// <summary>Returns a TRACKED series (with its seasons and episodes) for scan-time reuse, or null.</summary>
     Task<Series?> FindSeriesForScanAsync(Guid libraryId, string title, CancellationToken ct);
 

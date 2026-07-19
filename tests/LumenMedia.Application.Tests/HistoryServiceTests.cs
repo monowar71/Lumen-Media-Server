@@ -175,6 +175,114 @@ public sealed class HistoryServiceTests
         await act.Should().ThrowAsync<ValidationException>();
     }
 
+    [Fact]
+    public async Task ImportFromPlex_matches_episode_by_series_tmdb_and_applies_resume()
+    {
+        var userId = Guid.CreateVersion7();
+        var series = new Series(Guid.CreateVersion7(), "Основание", DateTimeOffset.UtcNow);
+        series.SetExternalIds("93740", null, null);
+        var episode = new Episode(series.Id, Guid.CreateVersion7(), 2, 10, DateTimeOffset.UtcNow);
+        var viewedAt = DateTimeOffset.Parse("2025-01-15T00:00:00Z");
+
+        var plex = Substitute.For<IPlexHistoryClient>();
+        plex.FetchWatchStateAsync(Arg.Any<Uri>(), "token", Arg.Any<CancellationToken>())
+            .Returns([
+                new PlexWatchEntry(
+                    PlexWatchKind.Episode,
+                    "Мифы о сотворении",
+                    "93740",
+                    null,
+                    null,
+                    SeasonNumber: 2,
+                    EpisodeNumber: 10,
+                    Watched: false,
+                    PositionMs: 1_412_091,
+                    DurationMs: 3_235_136,
+                    PlayCount: 1,
+                    ViewedAt: viewedAt,
+                    SeriesTitle: "Основание"),
+            ]);
+
+        PlaybackProgress? stored = null;
+        var progress = Substitute.For<IProgressRepository>();
+        progress.GetAsync(userId, episode.Id, Arg.Any<CancellationToken>()).Returns(_ => stored);
+        progress.When(p => p.AddAsync(Arg.Any<PlaybackProgress>(), Arg.Any<CancellationToken>()))
+            .Do(ci => stored = ci.Arg<PlaybackProgress>());
+
+        var media = Substitute.For<IMediaRepository>();
+        media.FindSeriesByExternalIdsAsync("93740", null, null, Arg.Any<CancellationToken>()).Returns(series);
+        media.FindEpisodeForScanAsync(series.Id, 2, 10, Arg.Any<CancellationToken>()).Returns(episode);
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Progress.Returns(progress);
+        uow.Media.Returns(media);
+
+        var sut = new HistoryService(uow, TimeProvider.System, plex);
+        var result = await sut.ImportFromPlexAsync(
+            userId,
+            new ImportPlexHistoryRequest { BaseUrl = "http://192.168.0.10:32400", Token = "token" },
+            default);
+
+        result.Matched.Should().Be(1);
+        result.Imported.Should().Be(1);
+        stored.Should().NotBeNull();
+        stored!.Watched.Should().BeFalse();
+        stored.PositionMs.Should().Be(1_412_091);
+    }
+
+    [Fact]
+    public async Task ImportFromPlex_matches_episode_by_series_title_fallback()
+    {
+        var userId = Guid.CreateVersion7();
+        var series = new Series(Guid.CreateVersion7(), "Тьма", DateTimeOffset.UtcNow);
+        var episode = new Episode(series.Id, Guid.CreateVersion7(), 1, 5, DateTimeOffset.UtcNow);
+
+        var plex = Substitute.For<IPlexHistoryClient>();
+        plex.FetchWatchStateAsync(Arg.Any<Uri>(), "token", Arg.Any<CancellationToken>())
+            .Returns([
+                new PlexWatchEntry(
+                    PlexWatchKind.Episode,
+                    "Правда",
+                    TmdbId: null,
+                    TvdbId: null,
+                    ImdbId: null,
+                    SeasonNumber: 1,
+                    EpisodeNumber: 5,
+                    Watched: false,
+                    PositionMs: 2_554_758,
+                    DurationMs: 2_737_472,
+                    PlayCount: 0,
+                    ViewedAt: DateTimeOffset.Parse("2025-02-01T00:00:00Z"),
+                    SeriesTitle: "Тьма"),
+            ]);
+
+        PlaybackProgress? stored = null;
+        var progress = Substitute.For<IProgressRepository>();
+        progress.GetAsync(userId, episode.Id, Arg.Any<CancellationToken>()).Returns(_ => stored);
+        progress.When(p => p.AddAsync(Arg.Any<PlaybackProgress>(), Arg.Any<CancellationToken>()))
+            .Do(ci => stored = ci.Arg<PlaybackProgress>());
+
+        var media = Substitute.For<IMediaRepository>();
+        media.FindSeriesByExternalIdsAsync(null, null, null, Arg.Any<CancellationToken>()).Returns((Series?)null);
+        media.FindSeriesByTitleAsync("Тьма", Arg.Any<CancellationToken>()).Returns(series);
+        media.FindEpisodeForScanAsync(series.Id, 1, 5, Arg.Any<CancellationToken>()).Returns(episode);
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Progress.Returns(progress);
+        uow.Media.Returns(media);
+
+        var sut = new HistoryService(uow, TimeProvider.System, plex);
+        var result = await sut.ImportFromPlexAsync(
+            userId,
+            new ImportPlexHistoryRequest { BaseUrl = "http://192.168.0.10:32400", Token = "token" },
+            default);
+
+        result.Matched.Should().Be(1);
+        result.Imported.Should().Be(1);
+        stored!.PositionMs.Should().Be(2_554_758);
+        await media.Received(1).FindSeriesByTitleAsync("Тьма", Arg.Any<CancellationToken>());
+    }
+
     private sealed class FakeTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;

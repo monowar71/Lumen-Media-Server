@@ -195,6 +195,40 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
         return null;
     }
 
+    public async Task<Movie?> FindMovieByTitleAsync(string title, CancellationToken ct)
+    {
+        var needle = title.Trim();
+        if (needle.Length == 0)
+            return null;
+
+        return await db.Movies.AsNoTracking()
+            .Where(m => m.Title == needle || (m.OriginalTitle != null && m.OriginalTitle == needle))
+            .OrderBy(m => m.AddedAt)
+            .FirstOrDefaultAsync(ct)
+            ?? await db.Movies.AsNoTracking()
+                .Where(m => m.Title.ToLower() == needle.ToLower()
+                    || (m.OriginalTitle != null && m.OriginalTitle.ToLower() == needle.ToLower()))
+                .OrderBy(m => m.AddedAt)
+                .FirstOrDefaultAsync(ct);
+    }
+
+    public async Task<Series?> FindSeriesByTitleAsync(string title, CancellationToken ct)
+    {
+        var needle = title.Trim();
+        if (needle.Length == 0)
+            return null;
+
+        return await db.Series.AsNoTracking()
+            .Where(s => s.Title == needle || (s.OriginalTitle != null && s.OriginalTitle == needle))
+            .OrderBy(s => s.AddedAt)
+            .FirstOrDefaultAsync(ct)
+            ?? await db.Series.AsNoTracking()
+                .Where(s => s.Title.ToLower() == needle.ToLower()
+                    || (s.OriginalTitle != null && s.OriginalTitle.ToLower() == needle.ToLower()))
+                .OrderBy(s => s.AddedAt)
+                .FirstOrDefaultAsync(ct);
+    }
+
     public Task<Series?> FindSeriesForScanAsync(Guid libraryId, string title, CancellationToken ct) =>
         db.Series
             .Include(s => s.Seasons)
