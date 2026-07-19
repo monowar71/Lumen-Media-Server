@@ -15,9 +15,11 @@ public sealed class PlexHistoryClient(
     IHttpClientFactory httpClientFactory,
     ILogger<PlexHistoryClient> logger) : IPlexHistoryClient
 {
+    // Case-sensitive: Plex emits both string "guid" (plex://…) and array "Guid"
+    // (external ids). Case-insensitive binding would map "guid" onto List<PlexGuid>.
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true,
+        PropertyNameCaseInsensitive = false,
         NumberHandling = JsonNumberHandling.AllowReadingFromString,
     };
 
@@ -94,7 +96,7 @@ public sealed class PlexHistoryClient(
         if (viewCount <= 0 && viewOffset <= 0)
             return null;
 
-        var guids = (item.Guid ?? []).Select(g => g.Id).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>();
+        var guids = (item.ExternalGuids ?? []).Select(g => g.Id).Where(id => !string.IsNullOrWhiteSpace(id)).Cast<string>();
         var parsed = PlexGuidParser.Parse(guids, item.GrandparentGuid);
 
         if (kind == PlexWatchKind.Episode)
@@ -204,7 +206,7 @@ public sealed class PlexHistoryClient(
         [property: JsonPropertyName("viewOffset")] long? ViewOffset,
         [property: JsonPropertyName("duration")] long? Duration,
         [property: JsonPropertyName("lastViewedAt")] long? LastViewedAt,
-        [property: JsonPropertyName("Guid")] List<PlexGuid>? Guid);
+        [property: JsonPropertyName("Guid")] List<PlexGuid>? ExternalGuids);
 
     private sealed record PlexGuid([property: JsonPropertyName("id")] string? Id);
 }
