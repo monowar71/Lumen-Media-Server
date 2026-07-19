@@ -20,9 +20,11 @@ public static class DependencyInjection
         services.AddScoped<UserService>();
         services.AddScoped<LibraryService>();
         services.AddScoped<MediaQueryService>();
+        services.AddScoped<MediaFileService>();
         services.AddScoped<PlaybackService>();
         services.AddScoped<ProgressService>();
         services.AddScoped<HistoryService>();
+        services.AddScoped<ExternalHistoryPromoter>();
         services.AddScoped<HomeService>();
         services.AddScoped<JobService>();
         services.AddScoped<SettingsService>();

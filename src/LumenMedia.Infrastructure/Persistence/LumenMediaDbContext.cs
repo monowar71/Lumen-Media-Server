@@ -63,6 +63,7 @@ public sealed class LumenMediaDbContext(DbContextOptions<LumenMediaDbContext> op
     public DbSet<Person> People => Set<Person>();
     public DbSet<MediaPerson> MediaPeople => Set<MediaPerson>();
     public DbSet<PlaybackProgress> Progress => Set<PlaybackProgress>();
+    public DbSet<ExternalPlaybackHistory> ExternalPlaybackHistory => Set<ExternalPlaybackHistory>();
     public DbSet<ImportJob> ImportJobs => Set<ImportJob>();
     public DbSet<BackgroundJob> BackgroundJobs => Set<BackgroundJob>();
 

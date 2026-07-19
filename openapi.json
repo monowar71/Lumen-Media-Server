@@ -2237,6 +2237,40 @@
         }
       }
     },
+    "/api/v1/items/{id}/file": {
+      "delete": {
+        "tags": [
+          "Media"
+        ],
+        "summary": "Delete on-disk video file(s) for a movie or episode (admin).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteMediaFileResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/v1/items/{id}/subtitles/{streamId}.vtt": {
       "get": {
         "tags": [
@@ -2528,6 +2562,30 @@
               "string"
             ],
             "format": "int32"
+          }
+        }
+      },
+      "DeleteMediaFileResponse": {
+        "type": "object",
+        "properties": {
+          "deletedFiles": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sourcesRemoved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "mediaRemoved": {
+            "type": "boolean"
           }
         }
       },
@@ -2859,15 +2917,18 @@
       },
       "HistoryEntryDto": {
         "required": [
-          "itemId",
           "kind",
           "title"
         ],
         "type": "object",
         "properties": {
           "itemId": {
-            "type": "string",
-            "format": "uuid"
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid",
+            "description": "Local media/episode id when matched; null for unmatched external rows."
           },
           "kind": {
             "$ref": "#/components/schemas/MediaKind"
@@ -2941,6 +3002,17 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "isExternal": {
+            "type": "boolean",
+            "description": "True when the row came from an external import and is not in the local library."
+          },
+          "externalKey": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Stable key for unmatched external rows."
           }
         }
       },

@@ -5,6 +5,7 @@ using LumenMedia.Application.Contracts;
 using LumenMedia.Application.Libraries;
 using LumenMedia.Domain.Enums;
 using LumenMedia.Domain.Media;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
 
@@ -14,6 +15,7 @@ namespace LumenMedia.Api.Controllers;
 [Route("api/v1")]
 public sealed class MediaController(
     MediaQueryService media,
+    MediaFileService files,
     IUnitOfWork uow,
     IArtworkStore artwork) : ControllerBase
 {
@@ -72,6 +74,14 @@ public sealed class MediaController(
         Response.Headers[HeaderNames.CacheControl] = "public, max-age=604800";
         return File(result.Content, result.ContentType);
     }
+
+    /// <summary>Deletes the on-disk video file(s) for a movie or episode (admin).</summary>
+    [HttpDelete("items/{id:guid}/file")]
+    [Authorize(Policy = "Admin")]
+    [ProducesResponseType(typeof(DeleteMediaFileResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<DeleteMediaFileResponse>> DeleteFile(Guid id, CancellationToken ct) =>
+        Ok(await files.DeleteFilesAsync(User.ToCaller(), id, ct));
 
     private async Task<string?> ResolveArtworkPathAsync(Guid id, ArtworkKind kind, Caller caller, CancellationToken ct)
     {

@@ -25,6 +25,7 @@ public static class DependencyInjection
         services.Configure<PathsOptions>(config.GetSection(PathsOptions.SectionName));
         services.Configure<JwtOptions>(config.GetSection(JwtOptions.SectionName));
         services.Configure<ImportOptions>(config.GetSection(ImportOptions.SectionName));
+        services.Configure<AutoScanOptions>(config.GetSection(AutoScanOptions.SectionName));
         services.Configure<JobWorkerOptions>(config.GetSection(JobWorkerOptions.SectionName));
         services.Configure<PlaybackOptions>(config.GetSection(PlaybackOptions.SectionName));
         services.Configure<MetadataOptions>(config.GetSection(MetadataOptions.SectionName));
@@ -92,6 +93,8 @@ public static class DependencyInjection
 
         services.AddScoped<IMediaScanner, FileSystemScanner>();
         services.AddScoped<IFileImporter, HardlinkImporter>();
+        services.AddSingleton<IMediaFileDeleter, Storage.MediaFileDeleter>();
+        services.AddHostedService<LibraryAutoScanHostedService>();
 
         services.AddSingleton<IJobQueue, ChannelJobQueue>();
         services.AddHostedService<JobWorker>();

@@ -1,7 +1,9 @@
 using FluentAssertions;
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Libraries;
 using LumenMedia.Domain.Media;
+using LumenMedia.Domain.Playback;
 using LumenMedia.Infrastructure.Metadata;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -22,17 +24,23 @@ public sealed class SeriesMergeTests
             .Returns(call => new Person(call.ArgAt<string>(0), call.ArgAt<string?>(1)));
         media.GetTrackedEpisodesForSeriesAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>())
             .Returns([]);
+        media.GetTrackedSeriesGraphAsync(primary.Id, Arg.Any<CancellationToken>()).Returns(primary);
 
         var progress = Substitute.For<IProgressRepository>();
         var artwork = Substitute.For<IArtworkStore>();
         var libs = Substitute.For<ILibraryRepository>();
         libs.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Library?)null);
 
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.FindByDedupeKeysAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
         var tx = Substitute.For<IAppTransaction>();
         var uow = Substitute.For<IUnitOfWork>();
         uow.Media.Returns(media);
         uow.Libraries.Returns(libs);
         uow.Progress.Returns(progress);
+        uow.ExternalHistory.Returns(external);
         uow.BeginTransactionAsync(Arg.Any<CancellationToken>()).Returns(tx);
 
         var provider = Substitute.For<IMetadataProvider>();
@@ -51,6 +59,7 @@ public sealed class SeriesMergeTests
             Substitute.For<IRemoteImageFetcher>(),
             language,
             TimeProvider.System,
+            new ExternalHistoryPromoter(uow),
             NullLogger<MetadataEnricher>.Instance);
         return (sut, media, progress, artwork);
     }

@@ -1,4 +1,5 @@
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Enums;
 using LumenMedia.Domain.Media;
 using Microsoft.Extensions.Logging;
@@ -17,6 +18,7 @@ public sealed class FileSystemScanner(
     INameParser nameParser,
     FfprobeClient ffprobe,
     TimeProvider clock,
+    ExternalHistoryPromoter externalHistoryPromoter,
     ILogger<FileSystemScanner> logger) : IMediaScanner
 {
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
@@ -106,6 +108,8 @@ public sealed class FileSystemScanner(
 
         await uow.Media.AddAsync(movie, ct);
         await uow.SaveChangesAsync(ct);
+        // Title-only promote; id-based promote runs again after metadata enrich.
+        await externalHistoryPromoter.PromoteForMovieAsync(movie, ct);
         return true;
     }
 
@@ -156,6 +160,7 @@ public sealed class FileSystemScanner(
                 moved.OwnedByEpisode(existingEpisode.Id);
                 await uow.Media.AddMediaSourceAsync(moved, ct);
                 await uow.SaveChangesAsync(ct);
+                await externalHistoryPromoter.PromoteForEpisodeAsync(existingEpisode, series, ct);
                 return true;
             }
         }
@@ -185,6 +190,7 @@ public sealed class FileSystemScanner(
         }
 
         await uow.SaveChangesAsync(ct);
+        await externalHistoryPromoter.PromoteForEpisodeAsync(episode, series, ct);
         return true;
     }
 

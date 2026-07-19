@@ -39,6 +39,9 @@ public sealed class HistoryServiceTests
 
         var uow = Substitute.For<IUnitOfWork>();
         uow.Progress.Returns(progress);
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.DeleteAllForUserAsync(userId, Arg.Any<CancellationToken>()).Returns(0);
+        uow.ExternalHistory.Returns(external);
 
         var sut = new HistoryService(uow, clock, Substitute.For<IPlexHistoryClient>());
         var result = await sut.ClearAsync(userId, default);
@@ -89,6 +92,9 @@ public sealed class HistoryServiceTests
         var uow = Substitute.For<IUnitOfWork>();
         uow.Progress.Returns(progress);
         uow.Media.Returns(media);
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.DeleteAsync(userId, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0);
+        uow.ExternalHistory.Returns(external);
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
@@ -146,6 +152,9 @@ public sealed class HistoryServiceTests
         var uow = Substitute.For<IUnitOfWork>();
         uow.Progress.Returns(progress);
         uow.Media.Returns(media);
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.DeleteAsync(userId, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0);
+        uow.ExternalHistory.Returns(external);
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
@@ -216,6 +225,9 @@ public sealed class HistoryServiceTests
         var uow = Substitute.For<IUnitOfWork>();
         uow.Progress.Returns(progress);
         uow.Media.Returns(media);
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.DeleteAsync(userId, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0);
+        uow.ExternalHistory.Returns(external);
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
@@ -270,6 +282,9 @@ public sealed class HistoryServiceTests
         var uow = Substitute.For<IUnitOfWork>();
         uow.Progress.Returns(progress);
         uow.Media.Returns(media);
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.DeleteAsync(userId, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(0);
+        uow.ExternalHistory.Returns(external);
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
@@ -281,6 +296,126 @@ public sealed class HistoryServiceTests
         result.Imported.Should().Be(1);
         stored!.PositionMs.Should().Be(2_554_758);
         await media.Received(1).FindSeriesByTitleAsync("Тьма", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task ImportFromPlex_persists_unmatched_as_external_history()
+    {
+        var userId = Guid.CreateVersion7();
+        var viewedAt = DateTimeOffset.Parse("2025-03-01T00:00:00Z");
+
+        var plex = Substitute.For<IPlexHistoryClient>();
+        plex.FetchWatchStateAsync(Arg.Any<Uri>(), "token", Arg.Any<CancellationToken>())
+            .Returns([
+                new PlexWatchEntry(
+                    PlexWatchKind.Movie,
+                    "Unknown Plex Film",
+                    "999001",
+                    null,
+                    null,
+                    SeasonNumber: null,
+                    EpisodeNumber: null,
+                    Watched: true,
+                    PositionMs: 0,
+                    DurationMs: 7_200_000,
+                    PlayCount: 1,
+                    ViewedAt: viewedAt),
+            ]);
+
+        var progress = Substitute.For<IProgressRepository>();
+        var media = Substitute.For<IMediaRepository>();
+        media.FindMovieByExternalIdsAsync("999001", null, null, Arg.Any<CancellationToken>())
+            .Returns((Movie?)null);
+        media.FindMovieByTitleAsync("Unknown Plex Film", Arg.Any<CancellationToken>())
+            .Returns((Movie?)null);
+
+        ExternalPlaybackHistory? stored = null;
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.GetAsync(userId, Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(_ => stored);
+        external.When(e => e.AddAsync(Arg.Any<ExternalPlaybackHistory>(), Arg.Any<CancellationToken>()))
+            .Do(ci => stored = ci.Arg<ExternalPlaybackHistory>());
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Progress.Returns(progress);
+        uow.Media.Returns(media);
+        uow.ExternalHistory.Returns(external);
+
+        var sut = new HistoryService(uow, TimeProvider.System, plex);
+        var result = await sut.ImportFromPlexAsync(
+            userId,
+            new ImportPlexHistoryRequest { BaseUrl = "http://192.168.0.10:32400", Token = "token" },
+            default);
+
+        result.Scanned.Should().Be(1);
+        result.Matched.Should().Be(0);
+        result.Unmatched.Should().Be(1);
+        result.Imported.Should().Be(1);
+        stored.Should().NotBeNull();
+        stored!.Title.Should().Be("Unknown Plex Film");
+        stored.Watched.Should().BeTrue();
+        stored.TmdbId.Should().Be("999001");
+        await progress.DidNotReceive().AddAsync(Arg.Any<PlaybackProgress>(), Arg.Any<CancellationToken>());
+        await uow.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task List_merges_matched_and_external_rows_by_updated_at()
+    {
+        var userId = Guid.CreateVersion7();
+        var movieId = Guid.CreateVersion7();
+        var matchedAt = DateTimeOffset.Parse("2026-07-10T12:00:00Z");
+        var externalAt = DateTimeOffset.Parse("2026-07-12T12:00:00Z");
+
+        var progressRow = new PlaybackProgress(userId, movieId, MediaKind.Movie, matchedAt);
+        progressRow.SetWatched(true, matchedAt);
+
+        var externalRow = new ExternalPlaybackHistory(
+            userId,
+            "m:tmdb:42",
+            MediaKind.Movie,
+            "External Only",
+            null,
+            null,
+            null,
+            externalAt);
+        externalRow.TryApplyImport(true, 0, null, 1, externalAt);
+
+        var progress = Substitute.For<IProgressRepository>();
+        progress.ListAllHistoryAsync(userId, Arg.Any<CancellationToken>()).Returns([progressRow]);
+
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.ListAllAsync(userId, Arg.Any<CancellationToken>()).Returns([externalRow]);
+
+        var media = Substitute.For<IMediaRepository>();
+        media.GetSummariesByIdsAsync(Arg.Any<IReadOnlyList<Guid>>(), userId, Arg.Any<CancellationToken>())
+            .Returns([
+                new MediaItemSummary
+                {
+                    Id = movieId,
+                    Kind = MediaKind.Movie,
+                    Title = "Local Movie",
+                    Year = 1999,
+                    Artwork = new ArtworkUrls(),
+                },
+            ]);
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Progress.Returns(progress);
+        uow.ExternalHistory.Returns(external);
+        uow.Media.Returns(media);
+
+        var sut = new HistoryService(uow, TimeProvider.System, Substitute.For<IPlexHistoryClient>());
+        var result = await sut.ListAsync(userId, 1, 50, default);
+
+        result.Total.Should().Be(2);
+        result.Items.Should().HaveCount(2);
+        result.Items[0].Title.Should().Be("External Only");
+        result.Items[0].IsExternal.Should().BeTrue();
+        result.Items[0].ItemId.Should().BeNull();
+        result.Items[1].Title.Should().Be("Local Movie");
+        result.Items[1].IsExternal.Should().BeFalse();
+        result.Items[1].ItemId.Should().Be(movieId);
     }
 
     private sealed class FakeTimeProvider(DateTimeOffset utcNow) : TimeProvider

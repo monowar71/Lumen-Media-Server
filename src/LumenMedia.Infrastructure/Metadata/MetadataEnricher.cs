@@ -1,4 +1,5 @@
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Enums;
 using LumenMedia.Domain.Media;
 using Microsoft.Extensions.Logging;
@@ -81,6 +82,7 @@ public sealed class MetadataEnricher(
     IRemoteImageFetcher images,
     IMetadataLanguageSource languageSource,
     TimeProvider clock,
+    ExternalHistoryPromoter externalHistoryPromoter,
     ILogger<MetadataEnricher> logger) : IMetadataEnricher
 {
     public async Task<bool> EnrichAsync(Guid itemId, string? provider, string? providerId, CancellationToken ct)
@@ -141,6 +143,13 @@ public sealed class MetadataEnricher(
 
         if (item is Series)
             await MergeDuplicateSeriesAsync(item.Id, ct);
+
+        // Library item now has stable external ids — fold unmatched Plex (etc.) history into
+        // native playback_progress so it looks like a local watch.
+        if (item is Movie movie)
+            await externalHistoryPromoter.PromoteForMovieAsync(movie, ct);
+        else if (item is Series series)
+            await externalHistoryPromoter.PromoteForSeriesAsync(series, ct);
 
         logger.LogInformation(
             "Enriched {Title} via {Provider}/{ProviderId}",

@@ -16,6 +16,23 @@ public sealed class PlaybackProgressConfig : IEntityTypeConfiguration<PlaybackPr
     }
 }
 
+public sealed class ExternalPlaybackHistoryConfig : IEntityTypeConfiguration<ExternalPlaybackHistory>
+{
+    public void Configure(EntityTypeBuilder<ExternalPlaybackHistory> b)
+    {
+        b.ToTable("external_playback_history");
+        b.HasKey(x => new { x.UserId, x.DedupeKey });
+        b.Property(x => x.DedupeKey).HasMaxLength(512).IsRequired();
+        b.Property(x => x.Title).HasMaxLength(512).IsRequired();
+        b.Property(x => x.SeriesTitle).HasMaxLength(512);
+        b.Property(x => x.Kind).HasConversion<string>().IsRequired();
+        b.Property(x => x.TmdbId).HasMaxLength(64);
+        b.Property(x => x.TvdbId).HasMaxLength(64);
+        b.Property(x => x.ImdbId).HasMaxLength(64);
+        b.HasIndex(x => new { x.UserId, x.UpdatedAt });
+    }
+}
+
 public sealed class ImportJobConfig : IEntityTypeConfiguration<ImportJob>
 {
     public void Configure(EntityTypeBuilder<ImportJob> b)

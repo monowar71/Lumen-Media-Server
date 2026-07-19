@@ -83,6 +83,9 @@ public interface IMediaRepository
     Task AddSeasonAsync(Season season, CancellationToken ct);
     Task AddEpisodeAsync(Episode episode, CancellationToken ct);
     Task AddMediaSourceAsync(MediaSource source, CancellationToken ct);
+    /// <summary>TRACKED sources owned by a movie or episode (for delete).</summary>
+    Task<IReadOnlyList<MediaSource>> GetTrackedSourcesForMediaAsync(Guid mediaId, CancellationToken ct);
+    void RemoveSource(MediaSource source);
 
     /// <summary>Tracked item with genres + artworks for metadata writes.</summary>
     Task<MediaItem?> GetTrackedForMetadataAsync(Guid id, CancellationToken ct);
@@ -129,6 +132,8 @@ public interface IProgressRepository
     Task<PlaybackProgress?> GetAsync(Guid userId, Guid mediaId, CancellationToken ct);
     Task AddAsync(PlaybackProgress progress, CancellationToken ct);
     Task<IReadOnlyList<PlaybackProgress>> GetContinueWatchingAsync(Guid userId, int limit, CancellationToken ct);
+    /// <summary>All watch history rows (watched or in-progress), newest first (unpaged).</summary>
+    Task<IReadOnlyList<PlaybackProgress>> ListAllHistoryAsync(Guid userId, CancellationToken ct);
     /// <summary>Watch history rows (watched or in-progress), newest first.</summary>
     Task<PagedResult<PlaybackProgress>> GetHistoryAsync(Guid userId, int page, int pageSize, CancellationToken ct);
     /// <summary>Tracked history rows eligible for clear (watched or in-progress).</summary>
@@ -137,6 +142,19 @@ public interface IProgressRepository
     void Remove(PlaybackProgress progress);
     /// <summary>Deletes progress rows for the given media/episode ids (no FK cascade exists).</summary>
     Task<int> DeleteForMediaIdsAsync(IReadOnlyCollection<Guid> mediaIds, CancellationToken ct);
+}
+
+public interface IExternalHistoryRepository
+{
+    Task<ExternalPlaybackHistory?> GetAsync(Guid userId, string dedupeKey, CancellationToken ct);
+    Task AddAsync(ExternalPlaybackHistory row, CancellationToken ct);
+    Task<IReadOnlyList<ExternalPlaybackHistory>> ListAllAsync(Guid userId, CancellationToken ct);
+    /// <summary>Unmatched rows whose dedupe key is in <paramref name="dedupeKeys"/> (any user).</summary>
+    Task<IReadOnlyList<ExternalPlaybackHistory>> FindByDedupeKeysAsync(
+        IReadOnlyCollection<string> dedupeKeys,
+        CancellationToken ct);
+    Task<int> DeleteAllForUserAsync(Guid userId, CancellationToken ct);
+    Task<int> DeleteAsync(Guid userId, string dedupeKey, CancellationToken ct);
 }
 
 public interface IJobRepository
@@ -159,6 +177,7 @@ public interface IUnitOfWork
     ILibraryRepository Libraries { get; }
     IMediaRepository Media { get; }
     IProgressRepository Progress { get; }
+    IExternalHistoryRepository ExternalHistory { get; }
     IJobRepository Jobs { get; }
     Task<int> SaveChangesAsync(CancellationToken ct);
     /// <summary>Drops tracked entities so a failed insert cannot poison later saves in the same scope.</summary>

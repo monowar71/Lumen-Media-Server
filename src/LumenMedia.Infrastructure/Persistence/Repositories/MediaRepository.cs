@@ -306,6 +306,14 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
     public async Task AddMediaSourceAsync(MediaSource source, CancellationToken ct) =>
         await db.MediaSources.AddAsync(source, ct);
 
+    public async Task<IReadOnlyList<MediaSource>> GetTrackedSourcesForMediaAsync(Guid mediaId, CancellationToken ct) =>
+        await db.MediaSources
+            .Include(s => s.Streams)
+            .Where(s => s.MediaItemId == mediaId || s.EpisodeId == mediaId)
+            .ToListAsync(ct);
+
+    public void RemoveSource(MediaSource source) => db.MediaSources.Remove(source);
+
     public Task<MediaItem?> GetTrackedForMetadataAsync(Guid id, CancellationToken ct) =>
         db.MediaItems
             .Include(m => m.Genres)

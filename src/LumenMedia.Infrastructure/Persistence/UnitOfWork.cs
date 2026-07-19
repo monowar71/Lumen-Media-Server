@@ -9,6 +9,7 @@ public sealed class UnitOfWork(LumenMediaDbContext db) : IUnitOfWork
     public ILibraryRepository Libraries { get; } = new LibraryRepository(db);
     public IMediaRepository Media { get; } = new MediaRepository(db);
     public IProgressRepository Progress { get; } = new ProgressRepository(db);
+    public IExternalHistoryRepository ExternalHistory { get; } = new ExternalHistoryRepository(db);
     public IJobRepository Jobs { get; } = new JobRepository(db);
 
     public Task<int> SaveChangesAsync(CancellationToken ct) => db.SaveChangesAsync(ct);

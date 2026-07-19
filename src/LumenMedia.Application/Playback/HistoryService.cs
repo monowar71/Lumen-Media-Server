@@ -18,16 +18,30 @@ public sealed class HistoryService(
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, MediaQueryService.MaxPageSize);
 
-        var pageResult = await uow.Progress.GetHistoryAsync(userId, page, pageSize, ct);
-        if (pageResult.Items.Count == 0)
-            return new PagedResult<HistoryEntryDto>([], page, pageSize, pageResult.Total);
+        var matchedRows = await uow.Progress.ListAllHistoryAsync(userId, ct);
+        var externalRows = await uow.ExternalHistory.ListAllAsync(userId, ct);
 
-        var movieIds = pageResult.Items
+        var timeline = new List<(DateTimeOffset UpdatedAt, bool External, PlaybackProgress? Progress, ExternalPlaybackHistory? ExternalRow)>(
+            matchedRows.Count + externalRows.Count);
+
+        foreach (var row in matchedRows)
+            timeline.Add((row.UpdatedAt, false, row, null));
+        foreach (var row in externalRows)
+            timeline.Add((row.UpdatedAt, true, null, row));
+
+        timeline.Sort((a, b) => b.UpdatedAt.CompareTo(a.UpdatedAt));
+        var total = timeline.Count;
+        var pageSlice = timeline.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+        if (pageSlice.Count == 0)
+            return new PagedResult<HistoryEntryDto>([], page, pageSize, total);
+
+        var pageProgress = pageSlice.Where(x => !x.External).Select(x => x.Progress!).ToList();
+        var movieIds = pageProgress
             .Where(e => e.MediaKind == MediaKind.Movie)
             .Select(e => e.MediaId)
             .Distinct()
             .ToList();
-        var episodeIds = pageResult.Items
+        var episodeIds = pageProgress
             .Where(e => e.MediaKind == MediaKind.Episode)
             .Select(e => e.MediaId)
             .Distinct()
@@ -47,9 +61,31 @@ public sealed class HistoryService(
             ? (await uow.Media.GetSummariesByIdsAsync(seriesIds, userId, ct)).ToDictionary(s => s.Id)
             : new Dictionary<Guid, MediaItemSummary>();
 
-        var items = new List<HistoryEntryDto>(pageResult.Items.Count);
-        foreach (var entry in pageResult.Items)
+        var items = new List<HistoryEntryDto>(pageSlice.Count);
+        foreach (var slot in pageSlice)
         {
+            if (slot.External)
+            {
+                var ext = slot.ExternalRow!;
+                items.Add(new HistoryEntryDto
+                {
+                    ItemId = null,
+                    Kind = ext.Kind,
+                    Title = ext.Title,
+                    SeriesTitle = ext.SeriesTitle,
+                    SeasonNumber = ext.SeasonNumber,
+                    EpisodeNumber = ext.EpisodeNumber,
+                    Watched = ext.Watched,
+                    PositionMs = ext.PositionMs,
+                    DurationMs = ext.DurationMs,
+                    UpdatedAt = ext.UpdatedAt,
+                    IsExternal = true,
+                    ExternalKey = ext.DedupeKey,
+                });
+                continue;
+            }
+
+            var entry = slot.Progress!;
             if (entry.MediaKind == MediaKind.Movie)
             {
                 if (!movies.TryGetValue(entry.MediaId, out var movie))
@@ -94,7 +130,7 @@ public sealed class HistoryService(
             });
         }
 
-        return new PagedResult<HistoryEntryDto>(items, page, pageSize, pageResult.Total);
+        return new PagedResult<HistoryEntryDto>(items, page, pageSize, total);
     }
 
     public async Task<ClearHistoryResponse> ClearAsync(Guid userId, CancellationToken ct)
@@ -116,6 +152,8 @@ public sealed class HistoryService(
 
             cleared++;
         }
+
+        cleared += await uow.ExternalHistory.DeleteAllForUserAsync(userId, ct);
 
         if (cleared > 0)
             await uow.SaveChangesAsync(ct);
@@ -146,21 +184,77 @@ public sealed class HistoryService(
         var imported = 0;
         var skippedNewer = 0;
         var unmatched = 0;
-        // Cache progress rows for this import so duplicate Plex entries (library + history)
-        // reuse the same tracked entity before SaveChanges.
         var progressByMedia = new Dictionary<Guid, PlaybackProgress>();
+        var externalByKey = new Dictionary<string, ExternalPlaybackHistory>(StringComparer.Ordinal);
 
         foreach (var entry in entries)
         {
             var target = await ResolveTargetAsync(entry, ct);
+            var dedupeKey = ExternalPlaybackHistory.BuildDedupeKey(
+                entry.Kind == PlexWatchKind.Movie ? MediaKind.Movie : MediaKind.Episode,
+                entry.Title,
+                entry.SeriesTitle,
+                entry.SeasonNumber,
+                entry.EpisodeNumber,
+                entry.TmdbId,
+                entry.TvdbId,
+                entry.ImdbId);
+
             if (target is null)
             {
                 unmatched++;
+                if (!externalByKey.TryGetValue(dedupeKey, out var external))
+                {
+                    external = await uow.ExternalHistory.GetAsync(userId, dedupeKey, ct);
+                    if (external is null)
+                    {
+                        external = new ExternalPlaybackHistory(
+                            userId,
+                            dedupeKey,
+                            entry.Kind == PlexWatchKind.Movie ? MediaKind.Movie : MediaKind.Episode,
+                            entry.Title,
+                            entry.SeriesTitle,
+                            entry.SeasonNumber,
+                            entry.EpisodeNumber,
+                            entry.ViewedAt);
+                        await uow.ExternalHistory.AddAsync(external, ct);
+                    }
+
+                    externalByKey[dedupeKey] = external;
+                }
+
+                external.SetExternalIds(entry.TmdbId, entry.TvdbId, entry.ImdbId);
+                var localUpdatedAt = external.UpdatedAt;
+                var appliedExternal = external.TryApplyImport(
+                    entry.Watched,
+                    entry.PositionMs,
+                    entry.DurationMs,
+                    entry.PlayCount,
+                    entry.ViewedAt);
+
+                if (appliedExternal)
+                    imported++;
+                else if (entry.ViewedAt < localUpdatedAt)
+                    skippedNewer++;
                 continue;
             }
 
             matched++;
             var (mediaId, kind) = target.Value;
+            // Promote: drop any previously unmatched row(s) for this title/ids.
+            foreach (var key in ExternalPlaybackHistory.CandidateDedupeKeys(
+                         kind,
+                         entry.Title,
+                         entry.SeriesTitle,
+                         entry.SeasonNumber,
+                         entry.EpisodeNumber,
+                         entry.TmdbId,
+                         entry.TvdbId,
+                         entry.ImdbId))
+            {
+                await uow.ExternalHistory.DeleteAsync(userId, key, ct);
+            }
+
             if (!progressByMedia.TryGetValue(mediaId, out var progress))
             {
                 progress = await uow.Progress.GetAsync(userId, mediaId, ct);
@@ -173,7 +267,7 @@ public sealed class HistoryService(
                 progressByMedia[mediaId] = progress;
             }
 
-            var localUpdatedAt = progress.UpdatedAt;
+            var progressUpdatedAt = progress.UpdatedAt;
             var applied = progress.TryApplyImport(
                 entry.Watched,
                 entry.PositionMs,
@@ -183,11 +277,11 @@ public sealed class HistoryService(
 
             if (applied)
                 imported++;
-            else if (entry.ViewedAt < localUpdatedAt)
+            else if (entry.ViewedAt < progressUpdatedAt)
                 skippedNewer++;
         }
 
-        if (imported > 0)
+        if (imported > 0 || unmatched > 0)
             await uow.SaveChangesAsync(ct);
 
         return new ImportPlexHistoryResponse

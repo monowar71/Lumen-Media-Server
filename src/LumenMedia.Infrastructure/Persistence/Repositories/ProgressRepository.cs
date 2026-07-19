@@ -22,6 +22,12 @@ public sealed class ProgressRepository(LumenMediaDbContext db) : IProgressReposi
             .Take(limit)
             .ToListAsync(ct);
 
+    public async Task<IReadOnlyList<PlaybackProgress>> ListAllHistoryAsync(Guid userId, CancellationToken ct) =>
+        await db.Progress.AsNoTracking()
+            .Where(p => p.UserId == userId && (p.Watched || p.PositionMs > 0))
+            .OrderByDescending(p => p.UpdatedAt)
+            .ToListAsync(ct);
+
     public async Task<PagedResult<PlaybackProgress>> GetHistoryAsync(Guid userId, int page, int pageSize, CancellationToken ct)
     {
         page = Math.Max(1, page);

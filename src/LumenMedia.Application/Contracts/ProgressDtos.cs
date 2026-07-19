@@ -27,7 +27,8 @@ public sealed record ProgressResponse
 
 public sealed record HistoryEntryDto
 {
-    public required Guid ItemId { get; init; }
+    /// <summary>Local media/episode id when matched; null for unmatched external rows.</summary>
+    public Guid? ItemId { get; init; }
     public required MediaKind Kind { get; init; }
     public required string Title { get; init; }
     public string? SeriesTitle { get; init; }
@@ -40,6 +41,10 @@ public sealed record HistoryEntryDto
     public long PositionMs { get; init; }
     public long? DurationMs { get; init; }
     public DateTimeOffset UpdatedAt { get; init; }
+    /// <summary>True when the row came from an external import and is not in the local library.</summary>
+    public bool IsExternal { get; init; }
+    /// <summary>Stable key for unmatched external rows (React list keys / clear).</summary>
+    public string? ExternalKey { get; init; }
 }
 
 public sealed record ClearHistoryResponse

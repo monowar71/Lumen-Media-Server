@@ -85,6 +85,16 @@ public sealed record MediaSourceDto
     public IReadOnlyList<MediaStreamDto> Streams { get; init; } = [];
 }
 
+public sealed record DeleteMediaFileResponse
+{
+    /// <summary>How many on-disk files were actually removed.</summary>
+    public int DeletedFiles { get; init; }
+    /// <summary>How many media_sources rows were removed.</summary>
+    public int SourcesRemoved { get; init; }
+    /// <summary>True when the movie/episode itself was removed after losing all sources.</summary>
+    public bool MediaRemoved { get; init; }
+}
+
 public sealed record MovieDetail
 {
     public required Guid Id { get; init; }

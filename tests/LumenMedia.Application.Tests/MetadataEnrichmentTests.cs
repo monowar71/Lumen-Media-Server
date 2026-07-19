@@ -1,8 +1,10 @@
 using FluentAssertions;
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Enums;
 using LumenMedia.Domain.Libraries;
 using LumenMedia.Domain.Media;
+using LumenMedia.Domain.Playback;
 using LumenMedia.Infrastructure.Metadata;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -19,13 +21,21 @@ public sealed class MetadataEnrichmentTests
         media.GetTrackedForMetadataAsync(item.Id, Arg.Any<CancellationToken>()).Returns(item);
         media.GetOrCreatePersonAsync(Arg.Any<string>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(call => new Person(call.ArgAt<string>(0), call.ArgAt<string?>(1)));
+        if (item is Series series)
+            media.GetTrackedSeriesGraphAsync(series.Id, Arg.Any<CancellationToken>()).Returns(series);
 
         var libs = Substitute.For<ILibraryRepository>();
         libs.GetByIdAsync(Arg.Any<Guid>(), Arg.Any<CancellationToken>()).Returns((Library?)null);
 
+        var external = Substitute.For<IExternalHistoryRepository>();
+        external.FindByDedupeKeysAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
         var uow = Substitute.For<IUnitOfWork>();
         uow.Media.Returns(media);
         uow.Libraries.Returns(libs);
+        uow.ExternalHistory.Returns(external);
+        uow.Progress.Returns(Substitute.For<IProgressRepository>());
 
         var provider = Substitute.For<IMetadataProvider>();
         provider.Name.Returns(details.Provider);
@@ -43,6 +53,7 @@ public sealed class MetadataEnrichmentTests
             Substitute.For<IRemoteImageFetcher>(),
             language,
             TimeProvider.System,
+            new ExternalHistoryPromoter(uow),
             NullLogger<MetadataEnricher>.Instance);
         return (sut, media, provider);
     }
