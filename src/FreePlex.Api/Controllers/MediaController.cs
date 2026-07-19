@@ -4,6 +4,7 @@ using FreePlex.Application.Common;
 using FreePlex.Application.Contracts;
 using FreePlex.Application.Libraries;
 using FreePlex.Domain.Enums;
+using FreePlex.Domain.Media;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Net.Http.Headers;
 
@@ -79,17 +80,35 @@ public sealed class MediaController(
         {
             if (!caller.CanAccess(item.LibraryId))
                 return null;
-            return item.Artworks.FirstOrDefault(a => a.Kind == kind)?.LocalPath;
+            return item.Artworks.FirstOrDefault(a => a.Kind == kind)?.LocalPath
+                ?? PreferSeriesStill(item.Artworks, kind);
         }
 
         var episode = await uow.Media.GetEpisodeAsync(id, ct);
         if (episode is null)
             return null;
-        var series = await uow.Media.GetByIdAsync(episode.SeriesId, ct);
+
+        // Episode-specific thumbs are not enriched yet; fall back to the parent series poster
+        // so <img> requests from the episode list do not 404.
+        var series = await uow.Media.GetDetailAsync(episode.SeriesId, ct);
         if (series is null || !caller.CanAccess(series.LibraryId))
             return null;
 
-        // Episode artwork owner lookup is not yet materialized in P0/P1 scanning.
+        return series.Artworks.FirstOrDefault(a => a.Kind == kind)?.LocalPath
+            ?? PreferSeriesStill(series.Artworks, kind);
+    }
+
+    /// <summary>
+    /// When the requested kind (usually Thumb) is missing, prefer Poster then Backdrop.
+    /// </summary>
+    private static string? PreferSeriesStill(IReadOnlyList<Artwork> artworks, ArtworkKind requested)
+    {
+        if (requested is ArtworkKind.Thumb or ArtworkKind.Poster or ArtworkKind.Backdrop)
+        {
+            return artworks.FirstOrDefault(a => a.Kind == ArtworkKind.Poster)?.LocalPath
+                ?? artworks.FirstOrDefault(a => a.Kind == ArtworkKind.Backdrop)?.LocalPath;
+        }
+
         return null;
     }
 }

@@ -195,6 +195,9 @@ public sealed class MetadataEnricher(
                 IsPrimary = kind == ArtworkKind.Poster,
             };
             item.AddArtwork(art);
+            // Client-generated Guid keys must be Add'd explicitly or EF issues UPDATE … WHERE Id=…
+            // against a missing row (DbUpdateConcurrencyException) and posters never appear in the UI.
+            await uow.Media.AddArtworkAsync(art, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

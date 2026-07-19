@@ -73,6 +73,11 @@ public interface IMediaRepository
 
     Task<Genre> GetOrCreateGenreAsync(string name, CancellationToken ct);
     void RemoveArtwork(Artwork artwork);
+    /// <summary>
+    /// Explicit INSERT — client-generated artwork keys are otherwise misclassified as UPDATE
+    /// when reached only via a tracked MediaItem collection (same pattern as seasons/episodes).
+    /// </summary>
+    Task AddArtworkAsync(Artwork artwork, CancellationToken ct);
 
     void Remove(MediaItem item);
 }

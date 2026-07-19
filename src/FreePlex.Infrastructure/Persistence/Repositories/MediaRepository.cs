@@ -199,6 +199,9 @@ public sealed class MediaRepository(FreePlexDbContext db) : IMediaRepository
 
     public void RemoveArtwork(Artwork artwork) => db.Artworks.Remove(artwork);
 
+    public async Task AddArtworkAsync(Artwork artwork, CancellationToken ct) =>
+        await db.Artworks.AddAsync(artwork, ct);
+
     public void Remove(MediaItem item) => db.MediaItems.Remove(item);
 
     private static IQueryable<MediaItem> ApplySort(IQueryable<MediaItem> query, MediaSortField sort, bool desc) => sort switch

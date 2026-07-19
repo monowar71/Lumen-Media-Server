@@ -65,4 +65,18 @@ public class RegexNameParserTests
         parsed.Title.Should().Be("Unknown");
         parsed.Kind.Should().Be(MediaKind.Movie);
     }
+
+    [Theory]
+    [InlineData("The.Matrix.1999.1080p.BluRay.x264-GRP.mkv", LibraryType.Movies, true)]
+    [InlineData("The.Matrix.1999.1080p.BluRay.x264-GRP.mkv", LibraryType.Series, false)]
+    [InlineData("Breaking.Bad.S03E07.720p.HDTV.x264.mkv", LibraryType.Series, true)]
+    [InlineData("Breaking.Bad.S03E07.720p.HDTV.x264.mkv", LibraryType.Movies, false)]
+    public void Parsed_kind_routes_to_matching_library_only(
+        string fileName,
+        LibraryType libraryType,
+        bool shouldAccept)
+    {
+        var parsed = _parser.Parse(fileName);
+        libraryType.Accepts(parsed.Kind).Should().Be(shouldAccept);
+    }
 }

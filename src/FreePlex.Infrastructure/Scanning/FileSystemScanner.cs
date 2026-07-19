@@ -9,6 +9,8 @@ namespace FreePlex.Infrastructure.Scanning;
 /// Walks a library's paths, creating <see cref="MediaItem"/> + <see cref="MediaSource"/> rows.
 /// ffprobe is optional: absent binary degrades to minimal stream info without crashing.
 /// Existing source paths are skipped (idempotent re-scan).
+/// Only files whose parsed kind matches the library type are imported, so Movies and Series
+/// libraries may share one filesystem root without moving or linking files.
 /// </summary>
 public sealed class FileSystemScanner(
     IUnitOfWork uow,
@@ -31,6 +33,7 @@ public sealed class FileSystemScanner(
         var files = EnumerateVideoFiles(library.Paths.Select(p => p.Path)).ToList();
         var seriesCache = new Dictionary<string, Series>(StringComparer.OrdinalIgnoreCase);
         var added = 0;
+        var skippedWrongKind = 0;
 
         for (var i = 0; i < files.Count; i++)
         {
@@ -44,11 +47,26 @@ public sealed class FileSystemScanner(
                 continue;
             }
 
+            var parsed = nameParser.Parse(Path.GetFileName(file));
+            if (!library.Type.Accepts(parsed.Kind))
+            {
+                // Shared-root layout: Movies/Series libraries scan the same folder; each takes
+                // only its kind. Dedicated trees simply skip stray files of the other kind.
+                skippedWrongKind++;
+                logger.LogDebug(
+                    "Skipping {File}: parsed as {Kind}, library is {LibraryType}",
+                    file,
+                    parsed.Kind,
+                    library.Type);
+                progress?.Report((i + 1) / (double)files.Count);
+                continue;
+            }
+
             try
             {
                 var imported = library.Type == LibraryType.Movies
-                    ? await ImportMovieAsync(library.Id, file, ct)
-                    : await ImportEpisodeAsync(library.Id, file, seriesCache, ct);
+                    ? await ImportMovieAsync(library.Id, file, parsed, ct)
+                    : await ImportEpisodeAsync(library.Id, file, parsed, seriesCache, ct);
                 if (imported)
                     added++;
             }
@@ -68,12 +86,16 @@ public sealed class FileSystemScanner(
         library = await uow.Libraries.GetByIdAsync(libraryId, ct) ?? library;
         library.MarkScanned(clock.GetUtcNow());
         await uow.SaveChangesAsync(ct);
+        if (skippedWrongKind > 0)
+            logger.LogInformation(
+                "Library {LibraryId} scan skipped {Skipped} file(s) that belong to another media kind",
+                libraryId,
+                skippedWrongKind);
         return new ScanResult(added, 0, 0);
     }
 
-    private async Task<bool> ImportMovieAsync(Guid libraryId, string file, CancellationToken ct)
+    private async Task<bool> ImportMovieAsync(Guid libraryId, string file, ParsedName parsed, CancellationToken ct)
     {
-        var parsed = nameParser.Parse(Path.GetFileName(file));
         var now = clock.GetUtcNow();
         var movie = new Movie(libraryId, parsed.Title, now);
         movie.SetYear(parsed.Year);
@@ -87,9 +109,13 @@ public sealed class FileSystemScanner(
         return true;
     }
 
-    private async Task<bool> ImportEpisodeAsync(Guid libraryId, string file, Dictionary<string, Series> cache, CancellationToken ct)
+    private async Task<bool> ImportEpisodeAsync(
+        Guid libraryId,
+        string file,
+        ParsedName parsed,
+        Dictionary<string, Series> cache,
+        CancellationToken ct)
     {
-        var parsed = nameParser.Parse(Path.GetFileName(file));
         var now = clock.GetUtcNow();
         var seasonNumber = parsed.Season ?? 1;
         var episodeNumber = parsed.Episode ?? 1;
