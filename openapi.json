@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.1",
   "info": {
-    "title": "FreePlex.Api | v1",
+    "title": "LumenMedia.Api | v1",
     "version": "1.0.0"
   },
   "servers": [

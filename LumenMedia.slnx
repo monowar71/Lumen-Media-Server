@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LumenMedia.Api/LumenMedia.Api.csproj" />
+    <Project Path="src/LumenMedia.Application/LumenMedia.Application.csproj" />
+    <Project Path="src/LumenMedia.Domain/LumenMedia.Domain.csproj" />
+    <Project Path="src/LumenMedia.Infrastructure/LumenMedia.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LumenMedia.Api.IntegrationTests/LumenMedia.Api.IntegrationTests.csproj" />
+    <Project Path="tests/LumenMedia.Application.Tests/LumenMedia.Application.Tests.csproj" />
+    <Project Path="tests/LumenMedia.Domain.Tests/LumenMedia.Domain.Tests.csproj" />
+  </Folder>
+</Solution>
