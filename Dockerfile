@@ -14,12 +14,14 @@ RUN dotnet publish src/LumenMedia.Api/LumenMedia.Api.csproj -c Release -o /app -
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 
-# ffmpeg + Intel VAAPI user-space driver (iHD). Host still needs /dev/dri + i915.
-# non-free iHD package is required for Alder Lake-N / newer Intel GPUs.
+# ffmpeg + Intel VAAPI user-space driver (iHD, amd64 only). Host still needs /dev/dri + i915.
+# non-free iHD package is required for Alder Lake-N / newer Intel GPUs; not available on arm64.
+ARG TARGETARCH
 RUN apt-get update \
+    && ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" \
     && apt-get install -y --no-install-recommends \
         ffmpeg curl vainfo \
-        intel-media-va-driver-non-free \
+        $( [ "$ARCH" = "amd64" ] && echo intel-media-va-driver-non-free || true ) \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app ./

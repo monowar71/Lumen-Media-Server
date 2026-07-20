@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- CI Docker images are multi-arch (`linux/amd64`, `linux/arm64`), built natively on `ubuntu-latest` + `ubuntu-24.04-arm` (no QEMU).
+
 ## [0.1.0] - 2026-07-20
 
 First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-server`); GitHub Releases carry notes only.
