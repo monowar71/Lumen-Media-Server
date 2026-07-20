@@ -118,7 +118,12 @@ public static class MediaMapper
         UpdatedAt = movie.UpdatedAt,
     };
 
-    public static SeriesDetail MapSeriesDetail(Series series, int seasonCount, int episodeCount, int unwatched) => new()
+    public static SeriesDetail MapSeriesDetail(
+        Series series,
+        int seasonCount,
+        int episodeCount,
+        int unwatched,
+        EpisodeSummary? nextUp = null) => new()
     {
         Id = series.Id,
         Title = series.Title,
@@ -137,7 +142,7 @@ public static class MediaMapper
         SeasonCount = seasonCount,
         EpisodeCount = episodeCount,
         Artwork = ItemArtwork(series),
-        UserData = new SeriesUserData { UnwatchedEpisodeCount = unwatched, NextUp = null },
+        UserData = new SeriesUserData { UnwatchedEpisodeCount = unwatched, NextUp = nextUp },
         LibraryId = series.LibraryId,
         AddedAt = series.AddedAt,
     };

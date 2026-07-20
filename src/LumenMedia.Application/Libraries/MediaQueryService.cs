@@ -45,6 +45,7 @@ public sealed class MediaQueryService(IUnitOfWork uow)
         var seasons = await uow.Media.GetSeasonsAsync(series.Id, ct);
         var episodeCount = 0;
         var unwatched = 0;
+        var candidates = new List<SeriesNextUp.Candidate>();
         foreach (var season in seasons)
         {
             var episodes = await uow.Media.GetEpisodesAsync(season.Id, ct);
@@ -54,10 +55,16 @@ public sealed class MediaQueryService(IUnitOfWork uow)
                 var progress = await uow.Progress.GetAsync(userId, episode.Id, ct);
                 if (progress is null || !progress.Watched)
                     unwatched++;
+                candidates.Add(new SeriesNextUp.Candidate(episode, progress));
             }
         }
 
-        return MediaMapper.MapSeriesDetail(series, seasons.Count, episodeCount, unwatched);
+        var next = SeriesNextUp.Select(candidates);
+        var nextUp = next is null
+            ? null
+            : MediaMapper.MapEpisodeSummary(next.Episode, next.Progress);
+
+        return MediaMapper.MapSeriesDetail(series, seasons.Count, episodeCount, unwatched, nextUp);
     }
 
     public async Task<PagedResult<SeasonDto>> GetSeasonsAsync(Guid seriesId, Caller caller, CancellationToken ct)
