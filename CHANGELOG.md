@@ -3,14 +3,18 @@
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
-once tagged releases begin.
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-07-20
+
+First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-server`); GitHub Releases carry notes only.
 
 ### Added
 
 - Open-source repository scaffolding (license, contributing guide, security policy, CI, issue/PR templates).
+- Domain / Application / Infrastructure / Api layers, SQLite, OpenAPI, Docker image with ffmpeg.
 - Artwork candidates API and item artwork service.
 - Auto-scan libraries, unmatched Plex history handling, and media file delete.
 - Watch history API, Plex history import, and series duplicate merge.
@@ -18,10 +22,13 @@ once tagged releases begin.
 - Library metadata refresh, VAAPI encode path, and improved TMDB scoring.
 - Metadata keys, TVDB provider, and manual match/edit flows.
 - Metadata language settings wired to TMDB with re-enrich.
+- Series next-up resolution for play CTAs.
+- CI publishes `linux/amd64` images to Docker Hub on `main` (`nightly`) and `v*` tags (`latest`, semver).
 
 ### Changed
 
 - Renamed product branding from FreePlex to LumenMedia.
+- Distribution channel: Docker Hub instead of GitHub Release assets.
 
 ### Fixed
 
@@ -31,8 +38,5 @@ once tagged releases begin.
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-## [0.1.0] - 2026-07-19
-
-### Added
-
-- Initial LumenMedia Server import: Domain / Application / Infrastructure / Api layers, SQLite, OpenAPI, Docker image with ffmpeg.
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.0

@@ -4,8 +4,9 @@
 
 | Version | Supported |
 | --- | --- |
+| `0.1.x` | Yes |
 | `main` (pre-1.0 development) | Yes |
-| Tagged releases (when published) | Latest minor only |
+| Older tagged releases | Latest minor only |
 
 ## Reporting a vulnerability
 
