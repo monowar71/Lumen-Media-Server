@@ -14,7 +14,16 @@
 .vscode/
 *.swp
 .DS_Store
+**/.DS_Store
 Thumbs.db
+*~
+
+## Local overrides
+*.local
+devices.local
+.env
+.env.*
+!.env.example
 
 ## Test / coverage
 TestResults/
