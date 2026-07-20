@@ -116,6 +116,14 @@ Bind mounts for `/config`, `/media`, and `/downloads` must be writable by UID **
 └── .github/             # CI, issue/PR templates, Dependabot
 ```
 
+## Related clients
+
+| Repo | Role |
+| --- | --- |
+| [Lumen-Media-iOS](https://github.com/monowar71/Lumen-Media-iOS) | iOS / iPad (SwiftUI) |
+| [Lumen-Media-Android](https://github.com/monowar71/Lumen-Media-Android) | Android / Android TV |
+| [Lumen-Media-Web](https://github.com/monowar71/Lumen-Media-Web) | Web (React + Vite) |
+
 ## Contributing
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) and the [Code of Conduct](CODE_OF_CONDUCT.md).
