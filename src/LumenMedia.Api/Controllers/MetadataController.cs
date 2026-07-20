@@ -2,19 +2,21 @@ using LumenMedia.Application.Abstractions;
 using LumenMedia.Application.Common;
 using LumenMedia.Application.Contracts;
 using LumenMedia.Application.Metadata;
+using LumenMedia.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LumenMedia.Api.Controllers;
 
-/// <summary>Manual metadata matching, editing, and refresh (admin).</summary>
+/// <summary>Manual metadata matching, editing, artwork, and refresh (admin).</summary>
 [ApiController]
 [Route("api/v1/items")]
 [Authorize(Policy = "Admin")]
 public sealed class MetadataController(
     IUnitOfWork uow,
     MetadataJobService metadataJobs,
-    ItemMetadataService itemMetadata) : ControllerBase
+    ItemMetadataService itemMetadata,
+    ItemArtworkService itemArtwork) : ControllerBase
 {
     public sealed record MatchRequest(string Provider, string ProviderId);
 
@@ -28,6 +30,29 @@ public sealed class MetadataController(
     {
         var candidates = await itemMetadata.SearchCandidatesAsync(id, q, year, ct);
         return Ok(candidates);
+    }
+
+    [HttpGet("{id:guid}/artwork-candidates")]
+    [ProducesResponseType<IReadOnlyList<ArtworkCandidateDto>>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<IReadOnlyList<ArtworkCandidateDto>>> ArtworkCandidates(
+        Guid id,
+        [FromQuery] ArtworkKind kind = ArtworkKind.Poster,
+        CancellationToken ct = default)
+    {
+        var candidates = await itemArtwork.ListCandidatesAsync(id, kind, ct);
+        return Ok(candidates);
+    }
+
+    [HttpPut("{id:guid}/artwork/{kind}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> SetArtwork(
+        Guid id,
+        ArtworkKind kind,
+        [FromBody] SetItemArtworkRequest request,
+        CancellationToken ct)
+    {
+        await itemArtwork.SetAsync(id, kind, request.Url, ct);
+        return NoContent();
     }
 
     [HttpPost("{id:guid}/match")]

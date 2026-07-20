@@ -178,6 +178,24 @@ public sealed record MetadataMatchCandidateDto
     public double Score { get; init; }
 }
 
+/// <summary>Alternative remote poster/backdrop the admin can apply.</summary>
+public sealed record ArtworkCandidateDto
+{
+    public required string Provider { get; init; }
+    public required string Kind { get; init; }
+    public required string Url { get; init; }
+    public required string ThumbnailUrl { get; init; }
+    public string? Language { get; init; }
+    public int? Width { get; init; }
+    public int? Height { get; init; }
+    public double? VoteAverage { get; init; }
+}
+
+public sealed record SetItemArtworkRequest
+{
+    public required string Url { get; init; }
+}
+
 public sealed record SeasonDto
 {
     public required Guid Id { get; init; }

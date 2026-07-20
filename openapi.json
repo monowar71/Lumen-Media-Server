@@ -1490,6 +1490,68 @@
             "description": "OK"
           }
         }
+      },
+      "put": {
+        "tags": ["Metadata"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": { "$ref": "#/components/schemas/ArtworkKind" }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/SetItemArtworkRequest" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": { "description": "No Content" }
+        }
+      }
+    },
+    "/api/v1/items/{id}/artwork-candidates": {
+      "get": {
+        "tags": ["Metadata"],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/ArtworkKind",
+              "default": "Poster"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": { "$ref": "#/components/schemas/ArtworkCandidateDto" }
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/items/{id}/match-candidates": {
@@ -3681,6 +3743,36 @@
               "string"
             ]
           }
+        }
+      },
+      "ArtworkCandidateDto": {
+        "required": ["provider", "kind", "url", "thumbnailUrl"],
+        "type": "object",
+        "properties": {
+          "provider": { "type": "string" },
+          "kind": { "type": "string" },
+          "url": { "type": "string" },
+          "thumbnailUrl": { "type": "string" },
+          "language": { "type": ["null", "string"] },
+          "width": {
+            "type": ["null", "integer", "string"],
+            "format": "int32"
+          },
+          "height": {
+            "type": ["null", "integer", "string"],
+            "format": "int32"
+          },
+          "voteAverage": {
+            "type": ["null", "number", "string"],
+            "format": "double"
+          }
+        }
+      },
+      "SetItemArtworkRequest": {
+        "required": ["url"],
+        "type": "object",
+        "properties": {
+          "url": { "type": "string" }
         }
       },
       "MetadataMatchCandidateDto": {

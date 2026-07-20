@@ -30,6 +30,7 @@ public static class DependencyInjection
         services.AddScoped<SettingsService>();
         services.AddScoped<MetadataJobService>();
         services.AddScoped<ItemMetadataService>();
+        services.AddScoped<ItemArtworkService>();
 
         return services;
     }

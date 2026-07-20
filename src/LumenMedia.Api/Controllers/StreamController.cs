@@ -104,7 +104,16 @@ public sealed class StreamController(
         if (!System.IO.File.Exists(fullPath) || !IsUnderAnyRoot(fullPath, roots))
             return NotFound();
 
-        return PhysicalFile(fullPath, ContentTypeForContainer(source.Container), enableRangeProcessing: true);
+        // Without fileDownloadName browsers name the file after the URL segment ("download.mkv").
+        var fileName = Path.GetFileName(fullPath);
+        if (string.IsNullOrWhiteSpace(fileName))
+            fileName = $"media.{source.Container ?? "mkv"}";
+
+        return PhysicalFile(
+            fullPath,
+            ContentTypeForContainer(source.Container ?? "mkv"),
+            fileDownloadName: fileName,
+            enableRangeProcessing: true);
     }
 
     [HttpGet("items/{id:guid}/subtitles/{streamId}.vtt")]

@@ -205,6 +205,49 @@ public sealed class TmdbMetadataProvider(
         return result;
     }
 
+    public async Task<IReadOnlyList<ArtworkImageCandidate>> ListArtworkAsync(
+        string providerId,
+        MediaKind mediaKind,
+        ArtworkKind artworkKind,
+        MetadataLanguage language,
+        CancellationToken ct)
+    {
+        if (!IsConfigured || string.IsNullOrWhiteSpace(providerId))
+            return [];
+        if (artworkKind is not (ArtworkKind.Poster or ArtworkKind.Backdrop))
+            return [];
+
+        var client = httpClientFactory.CreateClient("Tmdb");
+        var path = mediaKind == MediaKind.Movie
+            ? $"movie/{providerId}/images"
+            : $"tv/{providerId}/images";
+        // Empty language includes all localizations + textless images.
+        var payload = await GetAsync<TmdbImagesResponse>(
+            client,
+            path,
+            new Dictionary<string, string?> { ["include_image_language"] = "en,null,ru,uk,de,fr,es,it,ja,ko,zh" },
+            ct);
+        if (payload is null)
+            return [];
+
+        var entries = artworkKind == ArtworkKind.Poster ? payload.Posters : payload.Backdrops;
+        if (entries is null || entries.Count == 0)
+            return [];
+
+        return entries
+            .Where(e => !string.IsNullOrWhiteSpace(e.FilePath))
+            .Select(e => new ArtworkImageCandidate(
+                ProviderName,
+                artworkKind,
+                ImageUrl(e.FilePath, fullSize: true)!,
+                ImageUrl(e.FilePath, fullSize: false)!,
+                string.IsNullOrWhiteSpace(e.Iso6391) ? null : e.Iso6391,
+                e.Width,
+                e.Height,
+                e.VoteAverage))
+            .ToList();
+    }
+
     /// <summary>"Episode 5" / "Эпизод 5" auto-generated stubs are not real localized titles.</summary>
     private static bool IsPlaceholderEpisodeTitle(string title, int episodeNumber) =>
         title.Trim().Equals($"Episode {episodeNumber}", StringComparison.OrdinalIgnoreCase)
@@ -331,8 +374,10 @@ public sealed class TmdbMetadataProvider(
     private const int MaxRateLimitRetries = 3;
     private static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(10);
 
-    private static string? ImageUrl(string? path) =>
-        string.IsNullOrWhiteSpace(path) ? null : $"https://image.tmdb.org/t/p/w780{path}";
+    private static string? ImageUrl(string? path, bool fullSize = true) =>
+        string.IsNullOrWhiteSpace(path)
+            ? null
+            : $"https://image.tmdb.org/t/p/{(fullSize ? "w780" : "w185")}{path}";
 
     private static string? ProfileUrl(string? path) =>
         string.IsNullOrWhiteSpace(path) ? null : $"https://image.tmdb.org/t/p/w185{path}";
@@ -470,4 +515,15 @@ public sealed class TmdbMetadataProvider(
         string? Overview,
         [property: JsonPropertyName("air_date")] string? AirDate,
         int? Runtime);
+
+    private sealed record TmdbImagesResponse(
+        List<TmdbImageEntry>? Posters,
+        List<TmdbImageEntry>? Backdrops);
+
+    private sealed record TmdbImageEntry(
+        [property: JsonPropertyName("file_path")] string? FilePath,
+        [property: JsonPropertyName("iso_639_1")] string? Iso6391,
+        int? Width,
+        int? Height,
+        [property: JsonPropertyName("vote_average")] double? VoteAverage);
 }

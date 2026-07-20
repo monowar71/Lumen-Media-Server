@@ -74,7 +74,28 @@ public interface IMetadataProvider
         int seasonNumber,
         MetadataLanguage language,
         CancellationToken ct) => Task.FromResult<IReadOnlyList<EpisodeMetadata>>([]);
+
+    /// <summary>
+    /// Alternative poster/backdrop images for an already-matched title. Default: none.
+    /// </summary>
+    Task<IReadOnlyList<ArtworkImageCandidate>> ListArtworkAsync(
+        string providerId,
+        MediaKind mediaKind,
+        ArtworkKind artworkKind,
+        MetadataLanguage language,
+        CancellationToken ct) => Task.FromResult<IReadOnlyList<ArtworkImageCandidate>>([]);
 }
+
+/// <summary>One remote artwork option from a metadata provider.</summary>
+public sealed record ArtworkImageCandidate(
+    string Provider,
+    ArtworkKind Kind,
+    string Url,
+    string ThumbnailUrl,
+    string? Language,
+    int? Width,
+    int? Height,
+    double? VoteAverage);
 
 /// <summary>Downloads a remote image into the local artwork cache.</summary>
 public interface IRemoteImageFetcher
