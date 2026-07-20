@@ -87,12 +87,12 @@ jobs:
 
     steps:
       - name: Download publish archive
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lumenmedia-server-publish
 
       - name: Download Docker image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: lumenmedia-server-image
 
