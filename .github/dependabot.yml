@@ -1,5 +1,5 @@
 version: 2
-# dependabot-config-rev: 2026-07-20T19:53:09Z
+# dependabot-config-rev: 2026-07-20T19:53:16Z
 updates:
   - package-ecosystem: nuget
     directory: /
