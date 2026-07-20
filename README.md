@@ -22,14 +22,24 @@
 
 ### Production image
 
+CI pushes to Docker Hub on `main` (`nightly`, `sha-…`) and on `v*` tags (`latest`, semver):
+
 ```bash
-docker build -t lumenmedia-server .
+docker pull monowar71/lumenmedia-server:nightly
+# or: docker pull monowar71/lumenmedia-server:latest
+
 docker run --rm -p 8096:8096 \
   -e JWT__SECRET="$(openssl rand -base64 48)" \
   -v lumenmedia-config:/config \
   -v /path/to/media:/media \
   -v /path/to/downloads:/downloads \
-  lumenmedia-server
+  monowar71/lumenmedia-server:nightly
+```
+
+Build locally:
+
+```bash
+docker build -t lumenmedia-server .
 ```
 
 Optional Intel VAAPI:
@@ -40,8 +50,9 @@ docker run --rm -p 8096:8096 \
   -e JWT__SECRET="$(openssl rand -base64 48)" \
   -v lumenmedia-config:/config \
   -v /path/to/media:/media \
-  lumenmedia-server
+  monowar71/lumenmedia-server:nightly
 ```
+
 
 Then:
 

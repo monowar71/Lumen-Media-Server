@@ -15,6 +15,9 @@ concurrency:
 permissions:
   contents: read
 
+env:
+  IMAGE_NAME: monowar71/lumenmedia-server
+
 jobs:
   build-test:
     name: Build & test
@@ -36,88 +39,51 @@ jobs:
       - name: Test
         run: dotnet test LumenMedia.slnx -c Release --no-build --verbosity normal
 
-      - name: Publish API
-        if: github.event_name == 'push'
-        run: |
-          dotnet publish src/LumenMedia.Api/LumenMedia.Api.csproj -c Release -o ./publish
-          tar -C publish -czf lumenmedia-server-publish.tar.gz .
-
-      - name: Upload publish artifact
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
-        with:
-          name: lumenmedia-server-publish
-          path: lumenmedia-server-publish.tar.gz
-          if-no-files-found: error
-
   docker:
     name: Docker image
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: build-test
-    if: github.event_name == 'push' || github.event_name == 'pull_request'
+    if: github.event_name == 'push' || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      actions: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build image
-        run: docker build -t lumenmedia-server:ci .
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Save image
-        if: github.event_name == 'push'
-        run: docker save lumenmedia-server:ci | gzip > lumenmedia-server-image.tar.gz
-
-      - name: Upload image artifact
-        if: github.event_name == 'push'
-        uses: actions/upload-artifact@v7
+      - name: Login to Docker Hub
+        if: >-
+          (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+          && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+        uses: docker/login-action@v3
         with:
-          name: lumenmedia-server-image
-          path: lumenmedia-server-image.tar.gz
-          if-no-files-found: error
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-  release:
-    name: Publish release
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
-    needs: [build-test, docker]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download publish archive
-        uses: actions/download-artifact@v8
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
         with:
-          name: lumenmedia-server-publish
+          images: ${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=nightly,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=sha,prefix=sha-
 
-      - name: Download Docker image
-        uses: actions/download-artifact@v8
+      - name: Build and push
+        uses: docker/build-push-action@v6
         with:
-          name: lumenmedia-server-image
-
-      - name: Rename assets
-        run: |
-          if [ "${{ github.ref_type }}" = "tag" ]; then
-            mv lumenmedia-server-publish.tar.gz "lumenmedia-server-publish-${{ github.ref_name }}.tar.gz"
-            mv lumenmedia-server-image.tar.gz "lumenmedia-server-image-${{ github.ref_name }}.tar.gz"
-          else
-            mv lumenmedia-server-publish.tar.gz lumenmedia-server-publish-nightly.tar.gz
-            mv lumenmedia-server-image.tar.gz lumenmedia-server-image-nightly.tar.gz
-          fi
-          ls -lah lumenmedia-server-*.tar.gz
-
-      - name: Publish GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || 'nightly' }}
-          name: ${{ github.ref_type == 'tag' && github.ref_name || 'Nightly' }}
-          prerelease: ${{ github.ref_type != 'tag' }}
-          make_latest: ${{ github.ref_type == 'tag' && true || false }}
-          generate_release_notes: true
-          target_commitish: ${{ github.sha }}
-          files: |
-            lumenmedia-server-publish-*.tar.gz
-            lumenmedia-server-image-*.tar.gz
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          context: .
+          platforms: linux/amd64
+          push: ${{ (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
