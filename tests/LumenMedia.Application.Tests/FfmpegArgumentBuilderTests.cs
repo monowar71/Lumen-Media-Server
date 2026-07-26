@@ -59,6 +59,8 @@ public class FfmpegArgumentBuilderTests
         args.Should().ContainInOrder("-c:a", "aac");
         args.Should().ContainInOrder("-ac", "2");
         args.Should().ContainInOrder("-g", "60");
+        args.Should().ContainInOrder("-b:v", "4000k");
+        args.Should().ContainInOrder("-avoid_negative_ts", "make_zero");
         args.Should().ContainInOrder("-hls_time", "2");
         args.Should().ContainInOrder("-hls_init_time", "1");
         args.Should().Contain("independent_segments");

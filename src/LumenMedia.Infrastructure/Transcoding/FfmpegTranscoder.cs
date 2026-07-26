@@ -448,7 +448,7 @@ public static class FfmpegArgumentBuilder
                     : "format=nv12,hwupload";
                 args.Add("-vf");
                 args.Add(vf);
-                var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 8000;
+                var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 4000;
                 args.Add("-b:v");
                 args.Add($"{kbps}k");
                 args.Add("-maxrate");
@@ -491,8 +491,9 @@ public static class FfmpegArgumentBuilder
                 }
                 else
                 {
-                    // Audio-remux / auto at source resolution: bitrate target keeps HLS predictable.
-                    var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 8000;
+                    // Audio-remux / auto at source resolution: keep bitrates modest so
+                    // seek restarts produce the first HLS segment quickly on HDD/VAAPI.
+                    var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 4000;
                     args.Add("-b:v");
                     args.Add($"{kbps}k");
                     args.Add("-maxrate");
@@ -529,6 +530,11 @@ public static class FfmpegArgumentBuilder
             args.Add("-c:a");
             args.Add("copy");
         }
+
+        // Normalize timestamps after -ss so MSE/hls.js do not stall on negative/gap CTS.
+        args.Add("-avoid_negative_ts");
+        args.Add("make_zero");
+        args.Add("-start_at_zero");
 
         var segmentSec = Math.Max(1, opts.SegmentDurationSec);
         var initSec = Math.Clamp(opts.InitialSegmentDurationSec <= 0 ? 1 : opts.InitialSegmentDurationSec, 1, segmentSec);
