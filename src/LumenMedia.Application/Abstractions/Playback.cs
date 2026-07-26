@@ -50,6 +50,9 @@ public sealed record TranscodeRequest
     public int? AudioStreamIndex { get; init; }
     /// <summary>Absolute container stream index for bitmap subtitle burn-in.</summary>
     public int? SubtitleBurnInIndex { get; init; }
+    /// <summary>Source video frame size — used to clamp ladder scales (no upscale).</summary>
+    public int? SourceWidth { get; init; }
+    public int? SourceHeight { get; init; }
 }
 
 public interface ITranscoder

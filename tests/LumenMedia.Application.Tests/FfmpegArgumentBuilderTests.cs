@@ -46,7 +46,7 @@ public class FfmpegArgumentBuilderTests
     }
 
     [Fact]
-    public void Audio_only_transcode_uses_independent_segments_and_short_init_segment()
+    public void Audio_unsupported_encodes_video_with_short_gop()
     {
         var opts = new PlaybackOptions { SegmentDurationSec = 2, InitialSegmentDurationSec = 1 };
         var args = FfmpegArgumentBuilder.Build(
@@ -54,12 +54,13 @@ public class FfmpegArgumentBuilderTests
             "/tmp/out",
             opts);
 
-        args.Should().ContainInOrder("-c:v", "copy");
+        // BluRay-length GOPs make -c:v copy unstable in HLS — always re-encode.
+        args.Should().ContainInOrder("-c:v", "libx264");
         args.Should().ContainInOrder("-c:a", "aac");
         args.Should().ContainInOrder("-ac", "2");
+        args.Should().ContainInOrder("-g", "60");
         args.Should().ContainInOrder("-hls_time", "2");
         args.Should().ContainInOrder("-hls_init_time", "1");
-        // Keyframe-aligned cuts only — split_by_time breaks Chrome MSE with -c:v copy.
         args.Should().Contain("independent_segments");
         args.Should().NotContain(a => a.Contains("split_by_time", StringComparison.Ordinal));
         args.Should().ContainInOrder("-probesize", "1000000");
@@ -80,13 +81,26 @@ public class FfmpegArgumentBuilderTests
     public void Ladder_rung_encodes_and_scales()
     {
         var args = FfmpegArgumentBuilder.Build(
-            Request(PlaybackMethod.Transcode, "720p", "BitrateTooHigh"),
+            Request(PlaybackMethod.Transcode, "720p", "BitrateTooHigh") with { SourceHeight = 1080, SourceWidth = 1920 },
             "/tmp/out",
             new PlaybackOptions());
 
         args.Should().ContainInOrder("-c:v", "libx264");
         args.Should().ContainInOrder("-vf", "scale=-2:720");
         args.Should().ContainInOrder("-b:v", "4000k");
+        args.Should().ContainInOrder("-g", "60");
+    }
+
+    [Fact]
+    public void Ladder_rung_clamps_scale_to_source_height()
+    {
+        var args = FfmpegArgumentBuilder.Build(
+            Request(PlaybackMethod.Transcode, "1080p", "ManualQuality") with { SourceHeight = 696, SourceWidth = 1920 },
+            "/tmp/out",
+            new PlaybackOptions());
+
+        args.Should().ContainInOrder("-vf", "scale=-2:696");
+        args.Should().ContainInOrder("-b:v", "10000k");
     }
 
     [Fact]
@@ -98,7 +112,7 @@ public class FfmpegArgumentBuilderTests
             VaapiDevice = "/dev/dri/renderD128",
         };
         var args = FfmpegArgumentBuilder.Build(
-            Request(PlaybackMethod.Transcode, "720p", "BitrateTooHigh"),
+            Request(PlaybackMethod.Transcode, "720p", "BitrateTooHigh") with { SourceHeight = 1080, SourceWidth = 1920 },
             "/tmp/out",
             opts);
 

@@ -106,8 +106,38 @@ public class PlaybackDeciderTests
         var result = _decider.Decide(source, Profile(maxResolution: "1080p"), PlaybackMode.Auto, null, _options);
 
         result.AvailableQualities.Select(q => q.Id).Should().Contain("original");
+        result.AvailableQualities.Select(q => q.Id).Should().Contain("720p"); // same-height re-encode allowed
         result.AvailableQualities.Select(q => q.Id).Should().NotContain("1080p");
-        result.AvailableQualities.Select(q => q.Id).Should().NotContain("720p");
+        result.AvailableQualities.Select(q => q.Id).Should().NotContain("1080p-high");
+        result.AvailableQualities.Select(q => q.Id).Should().NotContain("1440p");
+    }
+
+    [Fact]
+    public void Ladder_offers_1080p_for_1080p_source()
+    {
+        var source = BuildSource(width: 1920, height: 1080, overallBitrateKbps: 20000);
+        var result = _decider.Decide(source, Profile(), PlaybackMode.Auto, null, _options);
+
+        result.AvailableQualities.Select(q => q.Id).Should().Contain("1080p");
+        result.AvailableQualities.Select(q => q.Id).Should().Contain("1080p-high");
+        result.AvailableQualities.Select(q => q.Id).Should().Contain("720p");
+        result.AvailableQualities.Select(q => q.Id).Should().OnlyHaveUniqueItems();
+    }
+
+    [Fact]
+    public void Ladder_offers_1080p_tier_for_ultrawide_open_matte()
+    {
+        // The Creator-style frame: full HD width, short height.
+        var source = BuildSource(width: 1920, height: 696, overallBitrateKbps: 21557);
+        var result = _decider.Decide(source, Profile(), PlaybackMode.Auto, null, _options);
+
+        var ids = result.AvailableQualities.Select(q => q.Id).ToList();
+        ids.Should().OnlyHaveUniqueItems();
+        ids.Should().Contain("1080p");
+        ids.Should().Contain("720p");
+        var q1080 = result.AvailableQualities.Single(q => q.Id == "1080p");
+        q1080.Height.Should().Be(696); // clamped — no upscale
+        q1080.Width.Should().Be(1920);
     }
 
     [Fact]

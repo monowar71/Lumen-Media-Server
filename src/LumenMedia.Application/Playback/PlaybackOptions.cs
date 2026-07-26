@@ -32,11 +32,23 @@ public sealed class PlaybackOptions
     /// <summary>Stop sessions with no playlist/segment/ping traffic for this long.</summary>
     public int IdleTimeoutSec { get; set; } = 120;
 
-    public List<LadderRung> Ladder { get; set; } =
+    /// <summary>
+    /// Bitrate ladder from config. Keep the default empty: ASP.NET Core list binding
+    /// <em>appends</em> config entries onto pre-populated defaults, which duplicated rungs.
+    /// </summary>
+    public List<LadderRung> Ladder { get; set; } = [];
+
+    public static IReadOnlyList<LadderRung> DefaultLadder { get; } =
     [
+        new() { Id = "1440p", Height = 1440, VideoBitrateKbps = 16000 },
+        new() { Id = "1080p-high", Height = 1080, VideoBitrateKbps = 20000 },
         new() { Id = "1080p", Height = 1080, VideoBitrateKbps = 10000 },
         new() { Id = "720p", Height = 720, VideoBitrateKbps = 4000 },
         new() { Id = "480p", Height = 480, VideoBitrateKbps = 1500 },
         new() { Id = "360p", Height = 360, VideoBitrateKbps = 700 },
     ];
+
+    /// <summary>Configured ladder, or <see cref="DefaultLadder"/> when unbound / empty.</summary>
+    public IReadOnlyList<LadderRung> EffectiveLadder =>
+        Ladder.Count > 0 ? Ladder : DefaultLadder;
 }

@@ -20,9 +20,9 @@ public sealed class StreamController(
 {
     private const string HlsContentType = "application/vnd.apple.mpegurl";
     private static readonly TimeSpan PlaylistWait = TimeSpan.FromSeconds(45);
-    /// <summary>Short wait — if the segment is not ready, fail fast so hls.js
-    /// reloads the playlist instead of hanging the buffer for a minute.</summary>
-    private static readonly TimeSpan SegmentWait = TimeSpan.FromSeconds(3);
+    /// <summary>Wait for the first encoded segment. Keep short enough that hls.js
+    /// can reload the playlist on stall, but long enough for VAAPI cold-start.</summary>
+    private static readonly TimeSpan SegmentWait = TimeSpan.FromSeconds(12);
 
     [HttpGet("stream/{sessionId}/master.m3u8")]
     public async Task<IActionResult> Master(string sessionId, CancellationToken ct)

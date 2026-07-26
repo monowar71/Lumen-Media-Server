@@ -29,7 +29,7 @@ public sealed class InMemorySettingsStore : ISettingsStore
                 AbrEnabled = p.AbrEnabled,
                 SegmentDurationSec = p.SegmentDurationSec,
                 DefaultRemoteCapKbps = p.DefaultRemoteCapKbps,
-                Ladder = p.Ladder
+                Ladder = p.EffectiveLadder
                     .Select(r => new LadderRungDto { Id = r.Id, Height = r.Height, VideoBitrateKbps = r.VideoBitrateKbps })
                     .ToList(),
             },

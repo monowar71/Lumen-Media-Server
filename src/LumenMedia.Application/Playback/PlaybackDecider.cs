@@ -119,6 +119,8 @@ public sealed class PlaybackDecider
         var sourceHeight = video?.Height;
         var sourceWidth = video?.Width;
         var originalBitrate = source.OverallBitrateKbps ?? video?.BitrateKbps;
+        // Ultrawide / open-matte (e.g. 1920×696) still belongs on the 1080p tier by width.
+        var tierHeight = EffectiveTierHeight(sourceWidth, sourceHeight);
 
         list.Add(new QualityOption
         {
@@ -130,27 +132,59 @@ public sealed class PlaybackDecider
             BitrateKbps = originalBitrate,
         });
 
-        foreach (var rung in options.Ladder.OrderByDescending(r => r.Height))
+        foreach (var rung in options.EffectiveLadder
+                     .OrderByDescending(r => r.Height)
+                     .ThenByDescending(r => r.VideoBitrateKbps))
         {
-            // No upscaling: skip rungs at or above the source resolution.
-            if (sourceHeight is not null && rung.Height >= sourceHeight)
+            // Skip rungs above the source tier (allows same-height re-encode, e.g. 1080p→1080p).
+            if (tierHeight is not null && rung.Height > tierHeight)
                 continue;
             // Clamp by the network cap.
             if (cap is not null && rung.VideoBitrateKbps > cap)
                 continue;
 
+            // Never upscale pixels: clamp output frame to the source.
+            var outHeight = sourceHeight is int sh ? Math.Min(rung.Height, sh) : rung.Height;
+            var outWidth = sourceWidth is int sw && sourceHeight is int && outHeight == sourceHeight
+                ? sw
+                : ComputeWidth(outHeight, sourceWidth, sourceHeight);
+
             list.Add(new QualityOption
             {
                 Id = rung.Id,
-                Label = $"{rung.Height}p",
+                Label = FormatRungLabel(rung),
                 Adaptive = false,
-                Width = ComputeWidth(rung.Height, sourceWidth, sourceHeight),
-                Height = rung.Height,
+                Width = outWidth,
+                Height = outHeight,
                 BitrateKbps = rung.VideoBitrateKbps,
             });
         }
 
         return list;
+    }
+
+    /// <summary>
+    /// 16:9-equivalent height so cinema / open-matte frames (wide but short) still
+    /// expose 1080p bitrate rungs without offering true upscales.
+    /// </summary>
+    internal static int? EffectiveTierHeight(int? sourceWidth, int? sourceHeight)
+    {
+        if (sourceHeight is null)
+            return null;
+        if (sourceWidth is not > 0)
+            return sourceHeight;
+        var equiv = (int)Math.Round(sourceWidth.Value * 9.0 / 16.0);
+        return Math.Max(sourceHeight.Value, equiv);
+    }
+
+    internal static string FormatRungLabel(LadderRung rung)
+    {
+        var rate = rung.VideoBitrateKbps >= 1000
+            ? $"{rung.VideoBitrateKbps / 1000.0:0.##} Mbps"
+            : $"{rung.VideoBitrateKbps} kbps";
+        if (rung.Id.Contains("high", StringComparison.OrdinalIgnoreCase))
+            return $"{rung.Height}p High (~{rate})";
+        return $"{rung.Height}p (~{rate})";
     }
 
     private static string ResolveSelectedQuality(

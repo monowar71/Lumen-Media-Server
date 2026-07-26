@@ -191,13 +191,16 @@ public sealed class PlaybackService(
         sessions.Touch(sessionId, now + SessionLifetime);
     }
 
-    private Task StartTranscodeAsync(
+    private async Task StartTranscodeAsync(
         PlaybackSession session,
         string qualityId,
         long startPositionMs,
         string reason,
-        CancellationToken ct) =>
-        transcoder.StartAsync(
+        CancellationToken ct)
+    {
+        var source = await uow.Media.GetSourceByIdAsync(session.MediaSourceId, ct);
+        var video = source?.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
+        await transcoder.StartAsync(
             new TranscodeRequest
             {
                 Session = session,
@@ -206,8 +209,11 @@ public sealed class PlaybackService(
                 Reason = reason,
                 AudioStreamIndex = session.AudioStreamIndex,
                 SubtitleBurnInIndex = session.SubtitleBurnInIndex,
+                SourceWidth = video?.Width,
+                SourceHeight = video?.Height,
             },
             ct);
+    }
 
     private async Task<MediaSource> ResolveSourceAsync(Caller caller, Guid mediaId, Guid? sourceId, CancellationToken ct)
     {

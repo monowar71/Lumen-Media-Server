@@ -218,6 +218,8 @@ public sealed class FfmpegTranscoder(
             "480p" => 1_500_000,
             "720p" => 4_000_000,
             "1080p" => 10_000_000,
+            "1080p-high" => 20_000_000,
+            "1440p" => 16_000_000,
             _ => 8_000_000,
         };
         var body =
@@ -331,11 +333,14 @@ public static class FfmpegArgumentBuilder
     {
         var method = request.Session.Method;
         var qualityId = request.QualityId;
-        var rung = opts.Ladder.FirstOrDefault(r => r.Id == qualityId);
+        var rung = opts.EffectiveLadder.FirstOrDefault(r => r.Id == qualityId);
         var downscale = rung is not null
                         && !qualityId.Equals("auto", StringComparison.OrdinalIgnoreCase)
                         && !qualityId.Equals("original", StringComparison.OrdinalIgnoreCase);
 
+        // Audio-only remux (-c:v copy) follows source keyframes. BluRay-style ~10s GOPs
+        // produce ~20–30 MB HLS segments that stall players (SegmentWait is short, ABR
+        // cannot recover). Always re-encode video so segments stay near SegmentDurationSec.
         var encodeVideo = method == PlaybackMethod.Transcode && (
             downscale
             || ContainsReason(request.Reason, "VideoCodecNotSupported")
@@ -344,11 +349,14 @@ public static class FfmpegArgumentBuilder
             || ContainsReason(request.Reason, "BitrateTooHigh")
             || ContainsReason(request.Reason, "NoVideoStream")
             || ContainsReason(request.Reason, "SubtitleBurnIn")
-            || ContainsReason(request.Reason, "ManualQuality"));
+            || ContainsReason(request.Reason, "ManualQuality")
+            || ContainsReason(request.Reason, "AudioCodecNotSupported"));
 
         // Browser MSE is unreliable with AC3/EAC3 in fMP4; always AAC on Transcode.
         // DirectStream keeps audio copy (codecs already accepted by the profile).
         var encodeAudio = method != PlaybackMethod.DirectStream;
+        var scaleHeight = ResolveScaleHeight(rung, request.SourceHeight);
+        var keyint = Math.Max(24, opts.SegmentDurationSec * 30);
 
         // Burn-in (bitmap overlay) stays on software encode — VAAPI + overlay is fragile.
         int? burnInIndex = request.SubtitleBurnInIndex is int idx && idx >= 0 ? idx : null;
@@ -425,11 +433,18 @@ public static class FfmpegArgumentBuilder
             args.Add("-c:v");
             args.Add(encoder);
 
+            // Short GOPs so HLS segments stay near SegmentDurationSec (copy path cannot do this).
+            args.Add("-g");
+            args.Add(keyint.ToString(CultureInfo.InvariantCulture));
+            args.Add("-keyint_min");
+            args.Add(keyint.ToString(CultureInfo.InvariantCulture));
+
             if (useVaapi)
             {
                 // Upload to VAAPI surface; optional HW scale. Bitrate (not CRF) for vaapi.
-                var vf = downscale && rung is not null
-                    ? $"format=nv12,hwupload,scale_vaapi=-2:{rung.Height}"
+                var needScale = scaleHeight is int sh && (request.SourceHeight is null || sh < request.SourceHeight);
+                var vf = needScale
+                    ? $"format=nv12,hwupload,scale_vaapi=-2:{scaleHeight}"
                     : "format=nv12,hwupload";
                 args.Add("-vf");
                 args.Add(vf);
@@ -456,7 +471,7 @@ public static class FfmpegArgumentBuilder
                 if (downscale && rung is not null && !burnIn)
                 {
                     args.Add("-vf");
-                    args.Add($"scale=-2:{rung.Height}");
+                    args.Add($"scale=-2:{scaleHeight}");
                     args.Add("-b:v");
                     args.Add($"{rung.VideoBitrateKbps}k");
                     args.Add("-maxrate");
@@ -476,8 +491,14 @@ public static class FfmpegArgumentBuilder
                 }
                 else
                 {
-                    args.Add("-crf");
-                    args.Add("20");
+                    // Audio-remux / auto at source resolution: bitrate target keeps HLS predictable.
+                    var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 8000;
+                    args.Add("-b:v");
+                    args.Add($"{kbps}k");
+                    args.Add("-maxrate");
+                    args.Add($"{kbps}k");
+                    args.Add("-bufsize");
+                    args.Add($"{kbps * 2}k");
                 }
             }
         }
@@ -548,4 +569,14 @@ public static class FfmpegArgumentBuilder
     private static bool ContainsReason(string? reason, string token) =>
         !string.IsNullOrEmpty(reason)
         && reason.Contains(token, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Clamp ladder height to the source frame — never upscale open-matte / short frames.</summary>
+    private static int? ResolveScaleHeight(LadderRung? rung, int? sourceHeight)
+    {
+        if (rung is null)
+            return sourceHeight;
+        if (sourceHeight is int sh && sh > 0)
+            return Math.Min(rung.Height, sh);
+        return rung.Height;
+    }
 }
