@@ -229,11 +229,36 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
                 .FirstOrDefaultAsync(ct);
     }
 
-    public Task<Series?> FindSeriesForScanAsync(Guid libraryId, string title, CancellationToken ct) =>
-        db.Series
+    public async Task<Series?> FindSeriesForScanAsync(Guid libraryId, string title, CancellationToken ct)
+    {
+        // After metadata enrichment Title is often localized (e.g. "Укрытие") while new files
+        // still parse as the original name ("Silo"). Match both Title and OriginalTitle so a
+        // re-scan does not create a duplicate series. Prefer the oldest row when both match
+        // (canonical card wins over a leftover duplicate).
+        var needle = title.Trim();
+        if (needle.Length == 0)
+            return null;
+
+        var match = await db.Series
             .Include(s => s.Seasons)
                 .ThenInclude(s => s.Episodes)
-            .FirstOrDefaultAsync(s => s.LibraryId == libraryId && s.Title == title, ct);
+            .Where(s => s.LibraryId == libraryId)
+            .Where(s => s.Title == needle || (s.OriginalTitle != null && s.OriginalTitle == needle))
+            .OrderBy(s => s.AddedAt)
+            .FirstOrDefaultAsync(ct);
+
+        if (match is not null)
+            return match;
+
+        return await db.Series
+            .Include(s => s.Seasons)
+                .ThenInclude(s => s.Episodes)
+            .Where(s => s.LibraryId == libraryId)
+            .Where(s => s.Title.ToLower() == needle.ToLower()
+                || (s.OriginalTitle != null && s.OriginalTitle.ToLower() == needle.ToLower()))
+            .OrderBy(s => s.AddedAt)
+            .FirstOrDefaultAsync(ct);
+    }
 
     public async Task<Series?> FindOtherSeriesByExternalIdAsync(
         Guid libraryId, Guid excludeId, string? tmdbId, string? tvdbId, CancellationToken ct)

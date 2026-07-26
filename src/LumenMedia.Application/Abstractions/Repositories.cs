@@ -59,7 +59,11 @@ public interface IMediaRepository
     /// <summary>Exact title/original-title match for Plex history fallback (case-insensitive).</summary>
     Task<Series?> FindSeriesByTitleAsync(string title, CancellationToken ct);
 
-    /// <summary>Returns a TRACKED series (with its seasons and episodes) for scan-time reuse, or null.</summary>
+    /// <summary>
+    /// TRACKED series (seasons + episodes) for scan-time reuse. Matches library-scoped
+    /// <c>Title</c> or <c>OriginalTitle</c> (case-insensitive fallback) so localized titles
+    /// still absorb new files named like the original title.
+    /// </summary>
     Task<Series?> FindSeriesForScanAsync(Guid libraryId, string title, CancellationToken ct);
 
     /// <summary>
