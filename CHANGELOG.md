@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-26
+
 ### Fixed
 
 - Android / native players no longer stop every 15 minutes: HLS and DirectPlay under `/api/v1/stream/{sessionId}/…` use the session id as a capability URL, so playback continues after the short-lived access JWT expires. DirectPlay `streamUrl` is now `/api/v1/stream/{sessionId}/source`.
+- Faster HLS restart after seek.
+- More stable AC3 remux; broader quality ladder.
 
 ### Changed
 
@@ -46,5 +50,6 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.1
 [0.1.0]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.0
