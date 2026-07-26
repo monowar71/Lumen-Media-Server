@@ -308,8 +308,11 @@ public sealed class PlaybackService(
         Guid mediaId,
         MediaSource source)
     {
+        // DirectPlay also goes through /stream/{sessionId}/… so native players (Android
+        // ExoPlayer, <video src>) can keep fetching after the short-lived access JWT expires.
+        // The session id is an unguessable capability token; JWT is only required to create it.
         var streamUrl = decision.Method == PlaybackMethod.DirectPlay
-            ? $"/api/v1/items/{mediaId}/download"
+            ? $"/api/v1/stream/{session.SessionId}/source"
             : session.Mode == PlaybackMode.Auto
                 ? $"/api/v1/stream/{session.SessionId}/master.m3u8"
                 : $"/api/v1/stream/{session.SessionId}/index.m3u8";

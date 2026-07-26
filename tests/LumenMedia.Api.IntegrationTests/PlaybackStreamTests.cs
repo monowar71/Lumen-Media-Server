@@ -90,12 +90,31 @@ public class PlaybackStreamTests(LumenMediaApiFactory factory) : IClassFixture<L
             var dpBody = JsonDocument.Parse(await dp.Content.ReadAsStringAsync()).RootElement;
             dpBody.GetProperty("method").GetString().Should().Be("DirectPlay");
             var downloadUrl = dpBody.GetProperty("streamUrl").GetString()!;
+            downloadUrl.Should().StartWith("/api/v1/stream/");
+            downloadUrl.Should().EndWith("/source");
 
             using var rangeReq = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
             rangeReq.Headers.Range = new RangeHeaderValue(0, 1023);
             var range = await client.SendAsync(rangeReq);
             range.StatusCode.Should().Be(HttpStatusCode.PartialContent);
             (await range.Content.ReadAsByteArrayAsync()).Length.Should().Be(1024);
+
+            // Native players (Android ExoPlayer) keep the stream URL after the 15‑minute access
+            // JWT expires — media under /stream/{sessionId} must work without Authorization.
+            using var anonClient = _factory.CreateClient();
+            using var anonRangeReq = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+            anonRangeReq.Headers.Range = new RangeHeaderValue(0, 511);
+            var anonRange = await anonClient.SendAsync(anonRangeReq);
+            anonRange.StatusCode.Should().Be(HttpStatusCode.PartialContent);
+            (await anonRange.Content.ReadAsByteArrayAsync()).Length.Should().Be(512);
+
+            // Expired access_token in the query string must not 401 stream URLs either.
+            using var expiredReq = new HttpRequestMessage(
+                HttpMethod.Get,
+                downloadUrl + "?access_token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.e30.invalid");
+            expiredReq.Headers.Range = new RangeHeaderValue(0, 255);
+            var expiredRange = await anonClient.SendAsync(expiredReq);
+            expiredRange.StatusCode.Should().Be(HttpStatusCode.PartialContent);
 
             // Force Transcode by rejecting the source video codec.
             var tc = await client.PostAsJsonAsync("/api/v1/playback/decision", new
@@ -145,6 +164,11 @@ public class PlaybackStreamTests(LumenMediaApiFactory factory) : IClassFixture<L
             var init = await client.GetAsync($"/api/v1/stream/{sessionId}/init.mp4");
             init.StatusCode.Should().Be(HttpStatusCode.OK);
             (await init.Content.ReadAsByteArrayAsync()).Length.Should().BeGreaterThan(0);
+
+            // HLS playlist/segment GETs must succeed without a bearer token (session capability).
+            using var anonHls = _factory.CreateClient();
+            var anonPlaylist = await anonHls.GetAsync($"/api/v1/stream/{sessionId}/index.m3u8");
+            anonPlaylist.StatusCode.Should().Be(HttpStatusCode.OK);
 
             var seek = await client.PostAsJsonAsync($"/api/v1/playback/{sessionId}/seek", new { positionMs = 2000 });
             seek.StatusCode.Should().Be(HttpStatusCode.OK);
