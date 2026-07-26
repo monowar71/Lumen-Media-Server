@@ -2,6 +2,7 @@ using LumenMedia.Api.Auth;
 using LumenMedia.Application.Common;
 using LumenMedia.Application.Contracts;
 using LumenMedia.Application.Playback;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace LumenMedia.Api.Controllers;
@@ -16,7 +17,7 @@ public sealed class HistoryController(HistoryService history) : ControllerBase
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 50,
         CancellationToken ct = default) =>
-        Ok(await history.ListAsync(User.GetUserId(), page, pageSize, ct));
+        Ok(await history.ListAsync(User.ToCaller(), page, pageSize, ct));
 
     [HttpDelete]
     [ProducesResponseType<ClearHistoryResponse>(StatusCodes.Status200OK)]
@@ -24,9 +25,10 @@ public sealed class HistoryController(HistoryService history) : ControllerBase
         Ok(await history.ClearAsync(User.GetUserId(), ct));
 
     [HttpPost("import/plex")]
+    [Authorize(Policy = "Admin")]
     [ProducesResponseType<ImportPlexHistoryResponse>(StatusCodes.Status200OK)]
     public async Task<ActionResult<ImportPlexHistoryResponse>> ImportPlex(
         [FromBody] ImportPlexHistoryRequest request,
         CancellationToken ct) =>
-        Ok(await history.ImportFromPlexAsync(User.GetUserId(), request, ct));
+        Ok(await history.ImportFromPlexAsync(User.ToCaller(), request, ct));
 }

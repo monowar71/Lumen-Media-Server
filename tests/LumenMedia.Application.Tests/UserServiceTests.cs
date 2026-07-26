@@ -56,6 +56,8 @@ public class UserServiceTests
         await CreateSut().UpdateAsync(user.Id, new UpdateUserRequest { Role = UserRole.User }, default);
 
         token.IsActive(now).Should().BeFalse("old refresh tokens must not keep minting the old role");
+        user.LibraryAccessAll.Should().BeFalse("demotion must clear Admin all-libraries access");
+        user.Role.Should().Be(UserRole.User);
     }
 
     [Fact]

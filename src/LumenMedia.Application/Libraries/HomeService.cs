@@ -13,7 +13,7 @@ public sealed class HomeService(IUnitOfWork uow, ProgressService progressService
             ? (await uow.Libraries.ListAsync(ct)).Select(l => l.Id).ToList()
             : caller.LibraryIds.ToList();
 
-        var continueWatching = await progressService.ContinueWatchingAsync(caller.UserId, 20, ct);
+        var continueWatching = await progressService.ContinueWatchingAsync(caller, 20, ct);
         var recentlyAdded = await uow.Media.GetRecentlyAddedAsync(allowed, 20, caller.UserId, ct);
 
         var sections = new List<HomeSection>

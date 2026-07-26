@@ -1,5 +1,5 @@
-using System.Runtime.InteropServices;
 using Microsoft.Extensions.Logging;
+using LumenMedia.Application.Common;
 
 namespace LumenMedia.Infrastructure.Storage;
 
@@ -14,22 +14,9 @@ public sealed class MediaFileDeleter(ILogger<MediaFileDeleter> logger) : Applica
         if (string.IsNullOrWhiteSpace(path) || libraryRoots.Count == 0)
             return false;
 
-        string fullPath;
-        try
+        if (!PathSafety.TryResolveUnderRoots(path, libraryRoots, out var fullPath))
         {
-            fullPath = ResolveRealPath(path);
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning(ex, "Could not resolve media path {Path}", path);
-            return false;
-        }
-
-        if (!IsUnderAnyRoot(fullPath, libraryRoots))
-        {
-            logger.LogWarning(
-                "Refusing to delete {Path}: outside library roots",
-                fullPath);
+            logger.LogWarning("Refusing to delete {Path}: outside library roots or unresolvable", path);
             return false;
         }
 
@@ -47,48 +34,5 @@ public sealed class MediaFileDeleter(ILogger<MediaFileDeleter> logger) : Applica
             logger.LogWarning(ex, "Failed to delete media file {Path}", fullPath);
             return false;
         }
-    }
-
-    private static bool IsUnderAnyRoot(string fullPath, IEnumerable<string> roots) =>
-        roots.Any(root => IsUnderRoot(fullPath, ResolveRealPath(root)));
-
-    private static string ResolveRealPath(string path)
-    {
-        var full = Path.GetFullPath(path);
-        var root = Path.GetPathRoot(full) ?? string.Empty;
-        var current = root;
-        foreach (var part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
-        {
-            current = Path.Combine(current, part);
-            FileSystemInfo info = Directory.Exists(current)
-                ? new DirectoryInfo(current)
-                : new FileInfo(current);
-            if (!info.Exists)
-                continue;
-
-            try
-            {
-                var target = info.ResolveLinkTarget(returnFinalTarget: true);
-                if (target is not null)
-                    current = target.FullName;
-            }
-            catch (IOException)
-            {
-            }
-        }
-
-        return current;
-    }
-
-    private static bool IsUnderRoot(string fullPath, string root)
-    {
-        var comparison = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal;
-        var normalizedRoot = root.EndsWith(Path.DirectorySeparatorChar)
-            ? root
-            : root + Path.DirectorySeparatorChar;
-        return fullPath.StartsWith(normalizedRoot, comparison)
-               || string.Equals(fullPath, root, comparison);
     }
 }

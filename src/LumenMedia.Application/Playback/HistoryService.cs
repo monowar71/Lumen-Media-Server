@@ -13,13 +13,13 @@ public sealed class HistoryService(
     TimeProvider clock,
     IPlexHistoryClient plex)
 {
-    public async Task<PagedResult<HistoryEntryDto>> ListAsync(Guid userId, int page, int pageSize, CancellationToken ct)
+    public async Task<PagedResult<HistoryEntryDto>> ListAsync(Caller caller, int page, int pageSize, CancellationToken ct)
     {
         page = Math.Max(1, page);
         pageSize = Math.Clamp(pageSize, 1, MediaQueryService.MaxPageSize);
 
-        var matchedRows = await uow.Progress.ListAllHistoryAsync(userId, ct);
-        var externalRows = await uow.ExternalHistory.ListAllAsync(userId, ct);
+        var matchedRows = await uow.Progress.ListAllHistoryAsync(caller.UserId, ct);
+        var externalRows = await uow.ExternalHistory.ListAllAsync(caller.UserId, ct);
 
         var timeline = new List<(DateTimeOffset UpdatedAt, bool External, PlaybackProgress? Progress, ExternalPlaybackHistory? ExternalRow)>(
             matchedRows.Count + externalRows.Count);
@@ -30,8 +30,23 @@ public sealed class HistoryService(
             timeline.Add((row.UpdatedAt, true, null, row));
 
         timeline.Sort((a, b) => b.UpdatedAt.CompareTo(a.UpdatedAt));
-        var total = timeline.Count;
-        var pageSlice = timeline.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+
+        // Filter matched rows the caller cannot access before paging so totals stay honest.
+        var accessible = new List<(DateTimeOffset UpdatedAt, bool External, PlaybackProgress? Progress, ExternalPlaybackHistory? ExternalRow)>();
+        foreach (var slot in timeline)
+        {
+            if (slot.External)
+            {
+                accessible.Add(slot);
+                continue;
+            }
+
+            if (await CanAccessProgressAsync(caller, slot.Progress!, ct))
+                accessible.Add(slot);
+        }
+
+        var total = accessible.Count;
+        var pageSlice = accessible.Skip((page - 1) * pageSize).Take(pageSize).ToList();
         if (pageSlice.Count == 0)
             return new PagedResult<HistoryEntryDto>([], page, pageSize, total);
 
@@ -48,7 +63,7 @@ public sealed class HistoryService(
             .ToList();
 
         var movies = movieIds.Count > 0
-            ? (await uow.Media.GetSummariesByIdsAsync(movieIds, userId, ct)).ToDictionary(m => m.Id)
+            ? (await uow.Media.GetSummariesByIdsAsync(movieIds, caller.UserId, ct)).ToDictionary(m => m.Id)
             : new Dictionary<Guid, MediaItemSummary>();
 
         var episodes = episodeIds.Count > 0
@@ -58,7 +73,7 @@ public sealed class HistoryService(
 
         var seriesIds = episodes.Select(e => e.SeriesId).Distinct().ToList();
         var seriesSummaries = seriesIds.Count > 0
-            ? (await uow.Media.GetSummariesByIdsAsync(seriesIds, userId, ct)).ToDictionary(s => s.Id)
+            ? (await uow.Media.GetSummariesByIdsAsync(seriesIds, caller.UserId, ct)).ToDictionary(s => s.Id)
             : new Dictionary<Guid, MediaItemSummary>();
 
         var items = new List<HistoryEntryDto>(pageSlice.Count);
@@ -162,7 +177,7 @@ public sealed class HistoryService(
     }
 
     public async Task<ImportPlexHistoryResponse> ImportFromPlexAsync(
-        Guid userId,
+        Caller caller,
         ImportPlexHistoryRequest request,
         CancellationToken ct)
     {
@@ -171,11 +186,8 @@ public sealed class HistoryService(
         if (string.IsNullOrWhiteSpace(request.Token))
             throw new ValidationException("token", "Plex token is required.");
 
-        if (!Uri.TryCreate(request.BaseUrl.Trim(), UriKind.Absolute, out var baseUrl)
-            || (baseUrl.Scheme != Uri.UriSchemeHttp && baseUrl.Scheme != Uri.UriSchemeHttps))
-        {
-            throw new ValidationException("baseUrl", "Plex server URL must be an absolute http(s) URL.");
-        }
+        var baseUrl = RemoteUrlSafety.EnsureSafeIntegrationUrl(request.BaseUrl);
+        var userId = caller.UserId;
 
         var entries = await plex.FetchWatchStateAsync(baseUrl, request.Token.Trim(), ct);
 
@@ -189,7 +201,7 @@ public sealed class HistoryService(
 
         foreach (var entry in entries)
         {
-            var target = await ResolveTargetAsync(entry, ct);
+            var target = await ResolveTargetAsync(caller, entry, ct);
             var dedupeKey = ExternalPlaybackHistory.BuildDedupeKey(
                 entry.Kind == PlexWatchKind.Movie ? MediaKind.Movie : MediaKind.Episode,
                 entry.Title,
@@ -294,14 +306,34 @@ public sealed class HistoryService(
         };
     }
 
-    private async Task<(Guid MediaId, MediaKind Kind)?> ResolveTargetAsync(PlexWatchEntry entry, CancellationToken ct)
+    private async Task<bool> CanAccessProgressAsync(Caller caller, PlaybackProgress progress, CancellationToken ct)
+    {
+        if (progress.MediaKind == MediaKind.Movie)
+        {
+            var item = await uow.Media.GetByIdAsync(progress.MediaId, ct);
+            return item is not null && caller.CanAccess(item.LibraryId);
+        }
+
+        var episode = await uow.Media.GetEpisodeAsync(progress.MediaId, ct);
+        if (episode is null)
+            return false;
+        var series = await uow.Media.GetByIdAsync(episode.SeriesId, ct);
+        return series is not null && caller.CanAccess(series.LibraryId);
+    }
+
+    private async Task<(Guid MediaId, MediaKind Kind)?> ResolveTargetAsync(
+        Caller caller,
+        PlexWatchEntry entry,
+        CancellationToken ct)
     {
         if (entry.Kind == PlexWatchKind.Movie)
         {
             var movie = await uow.Media.FindMovieByExternalIdsAsync(entry.TmdbId, entry.TvdbId, entry.ImdbId, ct);
             if (movie is null && !string.IsNullOrWhiteSpace(entry.Title))
                 movie = await uow.Media.FindMovieByTitleAsync(entry.Title, ct);
-            return movie is null ? null : (movie.Id, MediaKind.Movie);
+            if (movie is null || !caller.CanAccess(movie.LibraryId))
+                return null;
+            return (movie.Id, MediaKind.Movie);
         }
 
         if (entry.SeasonNumber is null || entry.EpisodeNumber is null)
@@ -310,7 +342,7 @@ public sealed class HistoryService(
         var series = await uow.Media.FindSeriesByExternalIdsAsync(entry.TmdbId, entry.TvdbId, entry.ImdbId, ct);
         if (series is null && !string.IsNullOrWhiteSpace(entry.SeriesTitle))
             series = await uow.Media.FindSeriesByTitleAsync(entry.SeriesTitle, ct);
-        if (series is null)
+        if (series is null || !caller.CanAccess(series.LibraryId))
             return null;
 
         var episode = await uow.Media.FindEpisodeForScanAsync(

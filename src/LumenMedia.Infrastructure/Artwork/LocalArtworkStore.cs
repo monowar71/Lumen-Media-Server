@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Common;
 using LumenMedia.Domain.Enums;
 using LumenMedia.Infrastructure.Configuration;
 using Microsoft.Extensions.Options;
@@ -17,13 +18,17 @@ public sealed class LocalArtworkStore(IOptions<PathsOptions> paths) : IArtworkSt
 
     public Task<ArtworkResult?> GetAsync(string localPath, int? width, int? height, int? quality, CancellationToken ct)
     {
-        if (!File.Exists(localPath))
+        if (string.IsNullOrWhiteSpace(localPath)
+            || !PathSafety.TryResolveUnderRoots(localPath, [MetadataRoot], out var fullPath)
+            || !File.Exists(fullPath))
+        {
             return Task.FromResult<ArtworkResult?>(null);
+        }
 
-        var info = new FileInfo(localPath);
-        var etag = ComputeETag(localPath, info.Length, info.LastWriteTimeUtc);
-        var contentType = GuessContentType(localPath);
-        Stream stream = new FileStream(localPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true);
+        var info = new FileInfo(fullPath);
+        var etag = ComputeETag(fullPath, info.Length, info.LastWriteTimeUtc);
+        var contentType = GuessContentType(fullPath);
+        Stream stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 64 * 1024, useAsync: true);
         return Task.FromResult<ArtworkResult?>(new ArtworkResult(stream, contentType, etag));
     }
 

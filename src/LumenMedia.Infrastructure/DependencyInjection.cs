@@ -67,10 +67,15 @@ public static class DependencyInjection
             client.DefaultRequestHeaders.UserAgent.ParseAdd("LumenMedia/0.1");
         });
         services.AddHttpClient("TmdbImages", client =>
-        {
-            client.Timeout = TimeSpan.FromSeconds(60);
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("LumenMedia/0.1");
-        });
+            {
+                client.Timeout = TimeSpan.FromSeconds(60);
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("LumenMedia/0.1");
+            })
+            .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+            {
+                // Allowlist is checked on the request URL; do not follow redirects off-host.
+                AllowAutoRedirect = false,
+            });
         services.AddHttpClient("TvMaze", client =>
         {
             client.BaseAddress = new Uri("https://api.tvmaze.com/");

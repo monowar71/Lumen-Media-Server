@@ -18,7 +18,6 @@ var app = builder.Build();
 EnsureStorageDirectories(app);
 ApplyMigrations(app);
 await RecoverInterruptedJobsAsync(app);
-WarnIfCorsIsPermissive(app);
 
 app.UseExceptionHandler();
 app.UseCors();
@@ -27,7 +26,8 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapOpenApi().AllowAnonymous();
+if (!app.Environment.IsProduction())
+    app.MapOpenApi().AllowAnonymous();
 app.MapHub<NotificationsHub>("/hubs/notifications");
 
 app.Run();
@@ -65,17 +65,6 @@ static void ApplyMigrations(WebApplication app)
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<LumenMediaDbContext>();
     db.Database.Migrate();
-}
-
-static void WarnIfCorsIsPermissive(WebApplication app)
-{
-    if (app.Environment.IsProduction()
-        && (app.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? []).Length == 0)
-    {
-        app.Services.GetRequiredService<ILogger<Program>>().LogWarning(
-            "Cors:AllowedOrigins is not configured — any browser origin is allowed. "
-            + "Set it when the server is reachable from the internet.");
-    }
 }
 
 // The job queue is in-memory: jobs left Queued/Running by a previous process are lost

@@ -16,6 +16,8 @@ public sealed class AuthService(
     {
         Validate(request.Username, request.Password);
 
+        await using var tx = await uow.BeginTransactionAsync(ct);
+
         var existing = await uow.Users.CountAsync(ct);
         if (existing > 0)
             throw new ConflictException("Setup already completed: an administrator already exists.");
@@ -24,6 +26,7 @@ public sealed class AuthService(
         var user = new User(request.Username.Trim(), passwordHasher.Hash(request.Password), UserRole.Admin, now);
         await uow.Users.AddAsync(user, ct);
         await uow.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
 
         return new SetupResponse { UserId = user.Id, Role = user.Role };
     }
@@ -52,8 +55,21 @@ public sealed class AuthService(
         var hash = tokenService.HashRefreshToken(request.RefreshToken);
         var stored = await uow.Users.GetRefreshTokenByHashAsync(hash, ct);
         var now = clock.GetUtcNow();
-        if (stored is null || !stored.IsActive(now))
+        if (stored is null)
             throw new UnauthorizedException("Refresh token is invalid, expired or revoked.");
+
+        if (!stored.IsActive(now))
+        {
+            // Reuse of a rotated/revoked refresh token → revoke the whole session family.
+            if (stored.RevokedAt is not null)
+            {
+                foreach (var token in await uow.Users.GetActiveRefreshTokensAsync(stored.UserId, ct))
+                    token.Revoke(now);
+                await uow.SaveChangesAsync(ct);
+            }
+
+            throw new UnauthorizedException("Refresh token is invalid, expired or revoked.");
+        }
 
         var user = await uow.Users.GetByIdAsync(stored.UserId, ct)
                    ?? throw new UnauthorizedException("User no longer exists.");
@@ -67,6 +83,7 @@ public sealed class AuthService(
             AccessToken = tokens.AccessToken,
             RefreshToken = tokens.RefreshToken,
             ExpiresInSec = tokens.ExpiresInSec,
+            User = UserMapper.Map(user),
         };
     }
 

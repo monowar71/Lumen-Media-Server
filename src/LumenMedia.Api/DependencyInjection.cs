@@ -38,9 +38,16 @@ public static class DependencyInjection
         services.AddSingleton<IRealtimeNotifier, SignalRRealtimeNotifier>();
 
         // Web client (Vite) and other browsers cannot call the API without CORS.
-        // Cors:AllowedOrigins (array) restricts browsers to known origins; when it is not
-        // configured we keep the permissive reflect-any-origin behavior for LAN setups.
+        // Cors:AllowedOrigins (array) restricts browsers to known origins. In Production
+        // an empty list is refused at startup; Development keeps reflect-any for LAN.
         var allowedOrigins = config.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+        if (env.IsProduction() && allowedOrigins.Length == 0)
+        {
+            throw new InvalidOperationException(
+                "Cors:AllowedOrigins must be configured in Production "
+                + "(comma/array of https origins). Refusing reflect-any-origin with credentials.");
+        }
+
         services.AddCors(options =>
         {
             options.AddDefaultPolicy(policy =>

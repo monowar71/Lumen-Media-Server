@@ -20,6 +20,8 @@ public class AuthServiceTests
     {
         _uow.Users.Returns(_users);
         _hasher.Hash(Arg.Any<string>()).Returns("hashed");
+        var tx = Substitute.For<IAppTransaction>();
+        _uow.BeginTransactionAsync(Arg.Any<CancellationToken>()).Returns(tx);
     }
 
     private AuthService CreateSut() => new(_uow, _hasher, _tokens, TimeProvider.System);

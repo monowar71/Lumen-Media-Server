@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using LumenMedia.Api.Auth;
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Common;
 using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Media;
 using LumenMedia.Infrastructure.Configuration;
@@ -94,8 +95,8 @@ public sealed class StreamController(
             return NotFound();
 
         var roots = await ResolveLibraryRootsAsync(source, ct);
-        var fullPath = ResolveRealPath(source.Path);
-        if (!System.IO.File.Exists(fullPath) || !IsUnderAnyRoot(fullPath, roots))
+        var fullPath = PathSafety.ResolveRealPath(source.Path);
+        if (!System.IO.File.Exists(fullPath) || !PathSafety.IsUnderAnyRoot(fullPath, roots))
             return NotFound();
 
         var fileName = Path.GetFileName(fullPath);
@@ -148,8 +149,8 @@ public sealed class StreamController(
         var source = await playback.GetPlayableSourceAsync(caller, id, sourceId, ct);
 
         var roots = await ResolveLibraryRootsAsync(source, ct);
-        var fullPath = ResolveRealPath(source.Path);
-        if (!System.IO.File.Exists(fullPath) || !IsUnderAnyRoot(fullPath, roots))
+        var fullPath = PathSafety.ResolveRealPath(source.Path);
+        if (!System.IO.File.Exists(fullPath) || !PathSafety.IsUnderAnyRoot(fullPath, roots))
             return NotFound();
 
         // Without fileDownloadName browsers name the file after the URL segment ("download.mkv").
@@ -179,8 +180,8 @@ public sealed class StreamController(
         if (stream.IsExternal && !string.IsNullOrWhiteSpace(stream.ExternalPath))
         {
             var roots = await ResolveLibraryRootsAsync(source, ct);
-            var full = ResolveRealPath(stream.ExternalPath);
-            if (!System.IO.File.Exists(full) || !IsUnderAnyRoot(full, roots))
+            var full = PathSafety.ResolveRealPath(stream.ExternalPath);
+            if (!System.IO.File.Exists(full) || !PathSafety.IsUnderAnyRoot(full, roots))
                 return NotFound();
         }
 
@@ -225,7 +226,7 @@ public sealed class StreamController(
 
         var dir = Path.GetFullPath(Path.Combine(paths.Value.Transcodes, sessionId));
         var full = Path.GetFullPath(Path.Combine(dir, fileName));
-        return IsUnderRoot(full, dir) ? full : null;
+        return PathSafety.IsUnderRoot(full, dir) ? full : null;
     }
 
     private static async Task<bool> WaitForFileAsync(string path, TimeSpan timeout, CancellationToken ct)
@@ -336,55 +337,6 @@ public sealed class StreamController(
             return [];
         var library = await uow.Libraries.GetByIdAsync(libraryId.Value, ct);
         return library?.Paths.Select(p => p.Path).ToList() ?? [];
-    }
-
-    private static bool IsUnderAnyRoot(string fullPath, IEnumerable<string> roots) =>
-        roots.Any(root => IsUnderRoot(fullPath, ResolveRealPath(root)));
-
-    /// <summary>
-    /// Canonicalizes a path by resolving symlinks in every component (realpath semantics —
-    /// <see cref="Path.GetFullPath(string)"/> only normalizes lexically). A link planted inside
-    /// a library (e.g. from a torrent) therefore cannot escape the root prefix check. Library
-    /// roots are canonicalized the same way, so setups where the root itself is a symlink
-    /// (or files legitimately link within the library) keep working.
-    /// </summary>
-    private static string ResolveRealPath(string path)
-    {
-        var full = Path.GetFullPath(path);
-        var root = Path.GetPathRoot(full) ?? string.Empty;
-        var current = root;
-        foreach (var part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
-        {
-            current = Path.Combine(current, part);
-            FileSystemInfo info = Directory.Exists(current)
-                ? new DirectoryInfo(current)
-                : new FileInfo(current);
-            if (!info.Exists)
-                continue;
-
-            try
-            {
-                var target = info.ResolveLinkTarget(returnFinalTarget: true);
-                if (target is not null)
-                    current = target.FullName;
-            }
-            catch (IOException)
-            {
-                // Broken or cyclic link chain — keep the unresolved component; the
-                // subsequent File.Exists / prefix check will reject it.
-            }
-        }
-
-        return current;
-    }
-
-    private static bool IsUnderRoot(string fullPath, string root)
-    {
-        var normalizedRoot = root.EndsWith(Path.DirectorySeparatorChar)
-            ? root
-            : root + Path.DirectorySeparatorChar;
-        return fullPath.StartsWith(normalizedRoot, StringComparison.Ordinal)
-               || string.Equals(fullPath, root, StringComparison.Ordinal);
     }
 
     private static string ContentTypeForContainer(string container) => container.ToLowerInvariant() switch

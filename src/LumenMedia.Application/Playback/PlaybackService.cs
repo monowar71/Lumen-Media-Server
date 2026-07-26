@@ -38,10 +38,15 @@ public sealed class PlaybackService(
         if (reasonOverride is not null)
             decision = decision with { Method = PlaybackMethod.Transcode, Reason = reasonOverride };
 
+        if (decision.Method == PlaybackMethod.Transcode && user is { AllowTranscoding: false })
+            throw new ForbiddenException("Transcoding is disabled for this user.");
+
         // Enforce the concurrent-transcode limit (backpressure → 429).
         // set-quality reuses a session id and does not bump this count.
         if (decision.Method == PlaybackMethod.Transcode && transcoder.ActiveSessionCount >= opts.MaxConcurrentSessions)
             throw new RateLimitException("Maximum number of concurrent transcode sessions reached. Try again later.");
+
+        var safePath = await ResolveSafeSourcePathAsync(source, ct);
 
         var now = clock.GetUtcNow();
         // Full GUID: a truncated id (32 bits) is both guessable and collision-prone.
@@ -52,7 +57,7 @@ public sealed class PlaybackService(
             UserId = caller.UserId,
             MediaId = request.MediaId,
             MediaSourceId = source.Id,
-            SourcePath = source.Path,
+            SourcePath = safePath,
             Container = source.Container,
             Method = decision.Method,
             Mode = request.Mode,
@@ -98,6 +103,9 @@ public sealed class PlaybackService(
             session.SubtitleBurnInIndex);
         if (reasonOverride is not null)
             decision = decision with { Method = PlaybackMethod.Transcode, Reason = reasonOverride };
+
+        if (decision.Method == PlaybackMethod.Transcode && user is { AllowTranscoding: false })
+            throw new ForbiddenException("Transcoding is disabled for this user.");
 
         session.Mode = request.Mode;
         session.SelectedQualityId = decision.SelectedQualityId;
@@ -248,6 +256,41 @@ public sealed class PlaybackService(
 
         if (libraryId is null || !caller.CanAccess(libraryId.Value))
             throw new NotFoundException("Media not found.");
+    }
+
+    /// <summary>
+    /// Resolves the media file realpath and refuses symlink escapes outside library roots
+    /// (same rules as download / DirectPlay).
+    /// </summary>
+    private async Task<string> ResolveSafeSourcePathAsync(MediaSource source, CancellationToken ct)
+    {
+        var roots = await ResolveLibraryRootsAsync(source, ct);
+        if (roots.Count == 0
+            || !PathSafety.TryResolveUnderRoots(source.Path, roots, out var fullPath)
+            || !File.Exists(fullPath))
+        {
+            throw new NotFoundException("Media file not found.");
+        }
+
+        return fullPath;
+    }
+
+    private async Task<IReadOnlyList<string>> ResolveLibraryRootsAsync(MediaSource source, CancellationToken ct)
+    {
+        Guid? libraryId = null;
+        if (source.MediaItemId is not null)
+            libraryId = (await uow.Media.GetByIdAsync(source.MediaItemId.Value, ct))?.LibraryId;
+        else if (source.EpisodeId is not null)
+        {
+            var episode = await uow.Media.GetEpisodeAsync(source.EpisodeId.Value, ct);
+            if (episode is not null)
+                libraryId = (await uow.Media.GetByIdAsync(episode.SeriesId, ct))?.LibraryId;
+        }
+
+        if (libraryId is null)
+            return [];
+        var library = await uow.Libraries.GetByIdAsync(libraryId.Value, ct);
+        return library?.Paths.Select(p => p.Path).ToList() ?? [];
     }
 
     private static (int? AudioIndex, int? BurnInIndex, string? ReasonOverride) ResolveTracks(

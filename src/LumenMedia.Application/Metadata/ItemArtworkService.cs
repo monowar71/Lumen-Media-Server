@@ -18,10 +18,7 @@ public sealed class ItemArtworkService(
     private const int MaxCandidates = 30;
     private const int MaxArtworkBytes = 20 * 1024 * 1024;
 
-    private static readonly HashSet<string> AllowedHosts = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "image.tmdb.org",
-    };
+    private static readonly HashSet<string> AllowedHosts = RemoteUrlSafety.ArtworkHosts;
 
     public async Task<IReadOnlyList<ArtworkCandidateDto>> ListCandidatesAsync(
         Guid itemId,
@@ -111,18 +108,8 @@ public sealed class ItemArtworkService(
             throw new ValidationException("kind", "Only Poster and Backdrop can be changed.");
     }
 
-    private static string ValidateRemoteUrl(string url)
-    {
-        if (string.IsNullOrWhiteSpace(url)
-            || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri)
-            || uri.Scheme != Uri.UriSchemeHttps
-            || !AllowedHosts.Contains(uri.Host))
-        {
-            throw new ValidationException("url", "Artwork URL host is not allowed.");
-        }
-
-        return uri.ToString();
-    }
+    private static string ValidateRemoteUrl(string url) =>
+        RemoteUrlSafety.EnsureAllowedHttpsHost(url, AllowedHosts);
 
     private static string? ResolveProviderId(MediaItem item, string providerName) =>
         providerName switch

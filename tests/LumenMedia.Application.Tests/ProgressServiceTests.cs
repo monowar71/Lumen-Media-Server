@@ -1,5 +1,6 @@
 using FluentAssertions;
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Common;
 using LumenMedia.Application.Contracts;
 using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Enums;
@@ -11,6 +12,9 @@ namespace LumenMedia.Application.Tests;
 
 public sealed class ProgressServiceTests
 {
+    private static Caller TestCaller(Guid userId) =>
+        new(userId, UserRole.User, AllLibraries: true, LibraryIds: []);
+
     [Fact]
     public async Task Update_with_watched_marks_movie()
     {
@@ -36,7 +40,7 @@ public sealed class ProgressServiceTests
         var sut = new ProgressService(uow, TimeProvider.System, notifier);
 
         var result = await sut.UpdateAsync(
-            userId,
+            TestCaller(userId),
             movieId,
             new UpdateProgressRequest { Watched = true },
             default);
@@ -54,12 +58,14 @@ public sealed class ProgressServiceTests
         var userId = Guid.CreateVersion7();
         var seriesId = Guid.CreateVersion7();
         var now = DateTimeOffset.UtcNow;
+        var series = new Series(seriesId, "Show", now);
         var season = new Season(seriesId, 1);
         var ep1 = new Episode(seriesId, season.Id, 1, 1, now);
         var ep2 = new Episode(seriesId, season.Id, 1, 2, now);
 
         var media = Substitute.For<IMediaRepository>();
         media.GetByIdAsync(season.Id, Arg.Any<CancellationToken>()).Returns((MediaItem?)null);
+        media.GetByIdAsync(seriesId, Arg.Any<CancellationToken>()).Returns(series);
         media.GetEpisodeAsync(season.Id, Arg.Any<CancellationToken>()).Returns((Episode?)null);
         media.GetSeasonAsync(season.Id, Arg.Any<CancellationToken>()).Returns(season);
         media.GetEpisodesAsync(season.Id, Arg.Any<CancellationToken>()).Returns([ep1, ep2]);
@@ -77,7 +83,7 @@ public sealed class ProgressServiceTests
 
         var sut = new ProgressService(uow, TimeProvider.System, Substitute.For<IRealtimeNotifier>());
         var result = await sut.UpdateAsync(
-            userId,
+            TestCaller(userId),
             season.Id,
             new UpdateProgressRequest { Watched = true },
             default);
@@ -94,12 +100,15 @@ public sealed class ProgressServiceTests
     {
         var userId = Guid.CreateVersion7();
         var now = DateTimeOffset.UtcNow;
-        var episode = new Episode(Guid.CreateVersion7(), Guid.CreateVersion7(), 1, 1, now);
+        var seriesId = Guid.CreateVersion7();
+        var series = new Series(seriesId, "Show", now);
+        var episode = new Episode(seriesId, Guid.CreateVersion7(), 1, 1, now);
         var stored = new PlaybackProgress(userId, episode.Id, MediaKind.Episode, now);
         stored.SetWatched(true, now);
 
         var media = Substitute.For<IMediaRepository>();
         media.GetByIdAsync(episode.Id, Arg.Any<CancellationToken>()).Returns((MediaItem?)null);
+        media.GetByIdAsync(seriesId, Arg.Any<CancellationToken>()).Returns(series);
         media.GetEpisodeAsync(episode.Id, Arg.Any<CancellationToken>()).Returns(episode);
 
         var progressRepo = Substitute.For<IProgressRepository>();
@@ -111,7 +120,7 @@ public sealed class ProgressServiceTests
 
         var sut = new ProgressService(uow, TimeProvider.System, Substitute.For<IRealtimeNotifier>());
         var result = await sut.UpdateAsync(
-            userId,
+            TestCaller(userId),
             episode.Id,
             new UpdateProgressRequest { Watched = false },
             default);

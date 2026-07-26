@@ -26,6 +26,20 @@ public class EntityTests
     }
 
     [Fact]
+    public void Demoting_admin_clears_library_access_all()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var admin = new User("root", "hash", UserRole.Admin, now);
+        admin.LibraryAccessAll.Should().BeTrue();
+
+        admin.SetRole(UserRole.User, now);
+
+        admin.Role.Should().Be(UserRole.User);
+        admin.LibraryAccessAll.Should().BeFalse();
+        admin.CanAccessLibrary(Guid.NewGuid()).Should().BeFalse();
+    }
+
+    [Fact]
     public void Restricted_user_only_accesses_allowed_libraries()
     {
         var now = DateTimeOffset.UtcNow;

@@ -10,19 +10,21 @@ namespace LumenMedia.Application.Playback;
 
 public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealtimeNotifier notifier)
 {
-    public async Task<ProgressResponse> UpdateAsync(Guid userId, Guid itemId, UpdateProgressRequest request, CancellationToken ct)
+    public async Task<ProgressResponse> UpdateAsync(Caller caller, Guid itemId, UpdateProgressRequest request, CancellationToken ct)
     {
+        await EnsureCanAccessItemAsync(caller, itemId, ct);
+
         if (request.Watched is { } watched)
-            return await SetWatchedAsync(userId, itemId, watched, ct);
+            return await SetWatchedAsync(caller.UserId, itemId, watched, ct);
 
         var kind = await ResolvePlayableKindAsync(itemId, ct)
                    ?? throw new NotFoundException("Item not found.");
 
         var now = clock.GetUtcNow();
-        var progress = await uow.Progress.GetAsync(userId, itemId, ct);
+        var progress = await uow.Progress.GetAsync(caller.UserId, itemId, ct);
         if (progress is null)
         {
-            progress = new PlaybackProgress(userId, itemId, kind, now);
+            progress = new PlaybackProgress(caller.UserId, itemId, kind, now);
             await uow.Progress.AddAsync(progress, ct);
         }
 
@@ -31,7 +33,7 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
         await uow.SaveChangesAsync(ct);
 
         await notifier.NotifyPlaybackSyncAsync(
-            userId,
+            caller.UserId,
             itemId,
             progress.PositionMs,
             request.State,
@@ -41,9 +43,11 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
         return ToResponse(itemId, progress);
     }
 
-    public async Task<ProgressResponse> GetAsync(Guid userId, Guid itemId, CancellationToken ct)
+    public async Task<ProgressResponse> GetAsync(Caller caller, Guid itemId, CancellationToken ct)
     {
-        var progress = await uow.Progress.GetAsync(userId, itemId, ct);
+        await EnsureCanAccessItemAsync(caller, itemId, ct);
+
+        var progress = await uow.Progress.GetAsync(caller.UserId, itemId, ct);
         return new ProgressResponse
         {
             ItemId = itemId,
@@ -53,15 +57,15 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
         };
     }
 
-    public async Task<PagedResult<MediaItemSummary>> ContinueWatchingAsync(Guid userId, int limit, CancellationToken ct)
+    public async Task<PagedResult<MediaItemSummary>> ContinueWatchingAsync(Caller caller, int limit, CancellationToken ct)
     {
         limit = Math.Clamp(limit, 1, MediaQueryService.MaxPageSize);
-        // Fetch extra rows so episode→series rollup / dedupe still fills the page.
-        var entries = await uow.Progress.GetContinueWatchingAsync(userId, limit * 3, ct);
+        // Fetch extra rows so episode→series rollup / dedupe / ACL filtering still fills the page.
+        var entries = await uow.Progress.GetContinueWatchingAsync(caller.UserId, limit * 3, ct);
 
         var movieIds = entries.Where(e => e.MediaKind == MediaKind.Movie).Select(e => e.MediaId).Distinct().ToList();
         var movieSummaries = movieIds.Count > 0
-            ? await uow.Media.GetSummariesByIdsAsync(movieIds, userId, ct)
+            ? await uow.Media.GetSummariesByIdsAsync(movieIds, caller.UserId, ct)
             : [];
         var movieById = movieSummaries.ToDictionary(s => s.Id);
 
@@ -76,6 +80,8 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
             if (entry.MediaKind == MediaKind.Movie)
             {
                 if (!movieById.TryGetValue(entry.MediaId, out var movie))
+                    continue;
+                if (!await CanAccessMediaIdAsync(caller, entry.MediaId, ct))
                     continue;
                 items.Add(movie with
                 {
@@ -94,10 +100,12 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
             var episode = await uow.Media.GetEpisodeAsync(entry.MediaId, ct);
             if (episode is null)
                 continue;
+            if (!await CanAccessSeriesAsync(caller, episode.SeriesId, ct))
+                continue;
             if (!seenSeries.Add(episode.SeriesId))
                 continue;
 
-            var seriesList = await uow.Media.GetSummariesByIdsAsync([episode.SeriesId], userId, ct);
+            var seriesList = await uow.Media.GetSummariesByIdsAsync([episode.SeriesId], caller.UserId, ct);
             var series = seriesList.FirstOrDefault();
             if (series is null)
                 continue;
@@ -167,6 +175,47 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
             Watched = watched,
             UpdatedAt = now,
         };
+    }
+
+    public async Task EnsureCanAccessItemAsync(Caller caller, Guid itemId, CancellationToken ct)
+    {
+        var item = await uow.Media.GetByIdAsync(itemId, ct);
+        if (item is not null)
+        {
+            if (!caller.CanAccess(item.LibraryId))
+                throw new NotFoundException("Item not found.");
+            return;
+        }
+
+        var episode = await uow.Media.GetEpisodeAsync(itemId, ct);
+        if (episode is not null)
+        {
+            if (!await CanAccessSeriesAsync(caller, episode.SeriesId, ct))
+                throw new NotFoundException("Item not found.");
+            return;
+        }
+
+        var season = await uow.Media.GetSeasonAsync(itemId, ct);
+        if (season is not null)
+        {
+            if (!await CanAccessSeriesAsync(caller, season.SeriesId, ct))
+                throw new NotFoundException("Item not found.");
+            return;
+        }
+
+        throw new NotFoundException("Item not found.");
+    }
+
+    private async Task<bool> CanAccessMediaIdAsync(Caller caller, Guid mediaId, CancellationToken ct)
+    {
+        var item = await uow.Media.GetByIdAsync(mediaId, ct);
+        return item is not null && caller.CanAccess(item.LibraryId);
+    }
+
+    private async Task<bool> CanAccessSeriesAsync(Caller caller, Guid seriesId, CancellationToken ct)
+    {
+        var series = await uow.Media.GetByIdAsync(seriesId, ct);
+        return series is not null && caller.CanAccess(series.LibraryId);
     }
 
     private async Task<IReadOnlyList<(Guid MediaId, MediaKind Kind)>> ResolveWatchedTargetsAsync(

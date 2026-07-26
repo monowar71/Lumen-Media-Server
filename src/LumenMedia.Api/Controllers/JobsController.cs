@@ -8,6 +8,7 @@ namespace LumenMedia.Api.Controllers;
 
 [ApiController]
 [Route("api/v1/jobs")]
+[Authorize(Policy = "Admin")]
 public sealed class JobsController(JobService jobs) : ControllerBase
 {
     [HttpGet]
@@ -26,7 +27,6 @@ public sealed class JobsController(JobService jobs) : ControllerBase
         Ok(await jobs.GetAsync(id, ct));
 
     [HttpPost("{id:guid}/cancel")]
-    [Authorize(Policy = "Admin")]
     [ProducesResponseType<JobDto>(StatusCodes.Status202Accepted)]
     public async Task<ActionResult<JobDto>> Cancel(Guid id, CancellationToken ct) =>
         Accepted(await jobs.CancelAsync(id, ct));

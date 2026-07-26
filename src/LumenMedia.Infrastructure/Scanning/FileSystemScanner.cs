@@ -1,4 +1,5 @@
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Common;
 using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Enums;
 using LumenMedia.Domain.Media;
@@ -68,9 +69,17 @@ public sealed class FileSystemScanner(
 
             try
             {
+                var roots = library.Paths.Select(p => p.Path).ToList();
+                if (!PathSafety.TryResolveUnderRoots(file, roots, out var safePath))
+                {
+                    logger.LogWarning("Skipping {File}: real path escapes library roots (symlink?)", file);
+                    progress?.Report((i + 1) / (double)files.Count);
+                    continue;
+                }
+
                 var imported = library.Type == LibraryType.Movies
-                    ? await ImportMovieAsync(library.Id, file, parsed, ct)
-                    : await ImportEpisodeAsync(library.Id, file, parsed, seriesCache, ct);
+                    ? await ImportMovieAsync(library.Id, safePath, parsed, ct)
+                    : await ImportEpisodeAsync(library.Id, safePath, parsed, seriesCache, ct);
                 if (imported)
                     added++;
             }

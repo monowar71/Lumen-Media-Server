@@ -43,7 +43,7 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
         if (q.Year is not null)
             query = query.Where(m => m.Year == q.Year);
         if (!string.IsNullOrWhiteSpace(q.Query))
-            query = query.Where(m => EF.Functions.Like(m.Title, $"%{q.Query}%"));
+            query = query.Where(m => EF.Functions.Like(m.Title, LikePattern.Contains(q.Query!), LikePattern.EscapeChar));
         if (q.Watched is not null)
         {
             var watched = q.Watched.Value;
@@ -69,7 +69,7 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
     public async Task<IReadOnlyList<MediaItemSummary>> SearchAsync(string term, IReadOnlyCollection<Guid> allowedLibraryIds, int limit, CancellationToken ct)
     {
         var rows = await db.MediaItems.AsNoTracking()
-            .Where(m => allowedLibraryIds.Contains(m.LibraryId) && EF.Functions.Like(m.Title, $"%{term}%"))
+            .Where(m => allowedLibraryIds.Contains(m.LibraryId) && EF.Functions.Like(m.Title, LikePattern.Contains(term), LikePattern.EscapeChar))
             .OrderBy(m => m.SortTitle)
             .Take(limit)
             .Select(Row.Projection(db, Guid.Empty))

@@ -12,6 +12,9 @@ namespace LumenMedia.Application.Tests;
 
 public sealed class HistoryServiceTests
 {
+    private static Caller AdminCaller(Guid userId) =>
+        new(userId, UserRole.Admin, AllLibraries: true, LibraryIds: []);
+
     [Fact]
     public async Task Clear_removes_non_favorite_history_and_keeps_favorite_flag()
     {
@@ -98,7 +101,7 @@ public sealed class HistoryServiceTests
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
-            userId,
+            AdminCaller(userId),
             new ImportPlexHistoryRequest { BaseUrl = "http://192.168.0.10:32400", Token = "token" },
             default);
 
@@ -158,7 +161,7 @@ public sealed class HistoryServiceTests
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
-            userId,
+            AdminCaller(userId),
             new ImportPlexHistoryRequest { BaseUrl = "http://plex.local:32400", Token = "token" },
             default);
 
@@ -177,7 +180,7 @@ public sealed class HistoryServiceTests
             Substitute.For<IPlexHistoryClient>());
 
         var act = () => sut.ImportFromPlexAsync(
-            Guid.CreateVersion7(),
+            AdminCaller(Guid.CreateVersion7()),
             new ImportPlexHistoryRequest { BaseUrl = "not-a-url", Token = "token" },
             default);
 
@@ -231,7 +234,7 @@ public sealed class HistoryServiceTests
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
-            userId,
+            AdminCaller(userId),
             new ImportPlexHistoryRequest { BaseUrl = "http://192.168.0.10:32400", Token = "token" },
             default);
 
@@ -288,7 +291,7 @@ public sealed class HistoryServiceTests
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
-            userId,
+            AdminCaller(userId),
             new ImportPlexHistoryRequest { BaseUrl = "http://192.168.0.10:32400", Token = "token" },
             default);
 
@@ -343,7 +346,7 @@ public sealed class HistoryServiceTests
 
         var sut = new HistoryService(uow, TimeProvider.System, plex);
         var result = await sut.ImportFromPlexAsync(
-            userId,
+            AdminCaller(userId),
             new ImportPlexHistoryRequest { BaseUrl = "http://192.168.0.10:32400", Token = "token" },
             default);
 
@@ -388,6 +391,8 @@ public sealed class HistoryServiceTests
         external.ListAllAsync(userId, Arg.Any<CancellationToken>()).Returns([externalRow]);
 
         var media = Substitute.For<IMediaRepository>();
+        media.GetByIdAsync(movieId, Arg.Any<CancellationToken>())
+            .Returns(new Movie(Guid.CreateVersion7(), "Local Movie", matchedAt));
         media.GetSummariesByIdsAsync(Arg.Any<IReadOnlyList<Guid>>(), userId, Arg.Any<CancellationToken>())
             .Returns([
                 new MediaItemSummary
@@ -406,7 +411,7 @@ public sealed class HistoryServiceTests
         uow.Media.Returns(media);
 
         var sut = new HistoryService(uow, TimeProvider.System, Substitute.For<IPlexHistoryClient>());
-        var result = await sut.ListAsync(userId, 1, 50, default);
+        var result = await sut.ListAsync(AdminCaller(userId), 1, 50, default);
 
         result.Total.Should().Be(2);
         result.Items.Should().HaveCount(2);

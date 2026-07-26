@@ -77,6 +77,8 @@ public class User
     public void SetRole(UserRole role, DateTimeOffset now)
     {
         Role = role;
+        // Demotion must not keep Admin's implicit all-libraries flag.
+        LibraryAccessAll = role == UserRole.Admin;
         UpdatedAt = now;
     }
 }

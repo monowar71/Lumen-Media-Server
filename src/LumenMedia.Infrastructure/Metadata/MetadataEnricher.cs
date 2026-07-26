@@ -1,4 +1,5 @@
 using LumenMedia.Application.Abstractions;
+using LumenMedia.Application.Common;
 using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Enums;
 using LumenMedia.Domain.Media;
@@ -10,11 +11,20 @@ public sealed class HttpRemoteImageFetcher(IHttpClientFactory httpClientFactory)
 {
     public async Task<Stream> OpenReadAsync(string url, CancellationToken ct)
     {
+        var safeUrl = RemoteUrlSafety.EnsureAllowedHttpsHost(url, RemoteUrlSafety.ArtworkHosts);
         var client = httpClientFactory.CreateClient("TmdbImages");
-        var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        // Do not follow redirects to arbitrary hosts after the allowlist check.
+        using var request = new HttpRequestMessage(HttpMethod.Get, safeUrl);
+        var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, ct);
         try
         {
             response.EnsureSuccessStatusCode();
+            if (response.RequestMessage?.RequestUri is { } final
+                && !RemoteUrlSafety.ArtworkHosts.Contains(final.Host))
+            {
+                throw new InvalidOperationException("Artwork redirect host is not allowed.");
+            }
+
             var stream = await response.Content.ReadAsStreamAsync(ct);
             // Disposing the stream disposes the response, so nothing leaks on the happy path.
             return new ResponseOwningStream(stream, response);

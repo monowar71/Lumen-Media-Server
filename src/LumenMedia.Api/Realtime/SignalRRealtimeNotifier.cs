@@ -15,11 +15,20 @@ public sealed class SignalRRealtimeNotifier(IHubContext<NotificationsHub> hub) :
         hub.Clients.Group(NotificationsHub.JobGroup(job.Id.ToString()))
             .SendAsync("JobProgress", new { @event = "JobProgress", job }, ct);
 
-    public Task NotifyLibraryUpdatedAsync(Guid libraryId, int added, int updated, int removed, CancellationToken ct = default) =>
-        hub.Clients.All.SendAsync(
-            "LibraryUpdated",
-            new { @event = "LibraryUpdated", libraryId, added, updated, removed },
-            ct);
+    public async Task NotifyLibraryUpdatedAsync(
+        Guid libraryId,
+        int added,
+        int updated,
+        int removed,
+        CancellationToken ct = default)
+    {
+        var payload = new { @event = "LibraryUpdated", libraryId, added, updated, removed };
+        // Admins / all-libraries users join LibrariesAllGroup; others join per-library groups.
+        await hub.Clients.Group(NotificationsHub.LibraryGroup(libraryId.ToString()))
+            .SendAsync("LibraryUpdated", payload, ct);
+        await hub.Clients.Group(NotificationsHub.LibrariesAllGroup)
+            .SendAsync("LibraryUpdated", payload, ct);
+    }
 
     public Task NotifyPlaybackSyncAsync(
         Guid userId,
@@ -40,8 +49,10 @@ public sealed class SignalRRealtimeNotifier(IHubContext<NotificationsHub> hub) :
         PlaybackMethod method,
         string sessionId,
         CancellationToken ct = default) =>
-        hub.Clients.All.SendAsync(
-            "NowPlaying",
-            new { @event = "NowPlaying", userId, itemId, method, sessionId },
-            ct);
+        // SessionId is a capability URL secret — never broadcast to other users.
+        hub.Clients.Group(NotificationsHub.UserGroup(userId.ToString()))
+            .SendAsync(
+                "NowPlaying",
+                new { @event = "NowPlaying", userId, itemId, method, sessionId },
+                ct);
 }
