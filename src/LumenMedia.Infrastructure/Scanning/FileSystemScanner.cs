@@ -45,6 +45,8 @@ public sealed class FileSystemScanner(
             var existing = await uow.Media.FindSourceByPathAsync(file, ct);
             if (existing is not null)
             {
+                // Backfill stream titles / disposition flags for libraries scanned before tags.title was mapped.
+                await RefreshStreamTagsIfNeededAsync(file, ct);
                 progress?.Report((i + 1) / (double)files.Count);
                 continue;
             }
@@ -265,6 +267,55 @@ public sealed class FileSystemScanner(
                 Language = lang,
             });
         }
+    }
+
+    /// <summary>
+    /// Re-probe existing sources that lack track titles so dubbing-studio names appear after
+    /// upgrading from builds that only mapped <c>tags.language</c>. Cheap no-op once titles exist.
+    /// </summary>
+    private async Task RefreshStreamTagsIfNeededAsync(string file, CancellationToken ct)
+    {
+        var source = await uow.Media.GetTrackedSourceByPathWithStreamsAsync(file, ct);
+        if (source is null)
+            return;
+
+        var needsRefresh = source.Streams.Any(s =>
+            (s.Kind == StreamKind.Audio || s.Kind == StreamKind.Subtitle)
+            && string.IsNullOrWhiteSpace(s.Title));
+        if (!needsRefresh)
+            return;
+
+        var probe = await ffprobe.ProbeAsync(file, ct);
+        if (probe is null)
+            return;
+
+        var changed = false;
+        foreach (var probed in probe.Streams)
+        {
+            if (probed.Kind is not (StreamKind.Audio or StreamKind.Subtitle))
+                continue;
+
+            var existing = source.Streams.FirstOrDefault(s =>
+                s.StreamIndex == probed.StreamIndex && s.Kind == probed.Kind);
+            if (existing is null)
+                continue;
+
+            if (!string.Equals(existing.Title, probed.Title, StringComparison.Ordinal)
+                || !string.Equals(existing.Language, probed.Language, StringComparison.Ordinal)
+                || existing.IsDefault != probed.IsDefault
+                || existing.IsForced != probed.IsForced)
+            {
+                existing.Title = probed.Title;
+                if (!string.IsNullOrWhiteSpace(probed.Language))
+                    existing.Language = probed.Language;
+                existing.IsDefault = probed.IsDefault;
+                existing.IsForced = probed.IsForced;
+                changed = true;
+            }
+        }
+
+        if (changed)
+            await uow.SaveChangesAsync(ct);
     }
 
     /// <summary>

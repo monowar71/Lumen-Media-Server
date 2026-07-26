@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-07-26
+
+### Added
+
+- Audio and subtitle track titles from container metadata (`tags.title`) — e.g. dubbing studios like LostFilm / MovieDalen — exposed on playback decision options and item streams.
+- Library re-scan backfills missing stream titles and disposition flags without re-importing files.
+
+### Changed
+
+- `/health` and server-info report version `0.1.2`.
+
 ## [0.1.1] - 2026-07-26
 
 ### Fixed
@@ -50,6 +61,7 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.2
 [0.1.1]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.1
 [0.1.0]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.0

@@ -76,6 +76,10 @@ public interface IMediaRepository
     Task<Episode?> FindEpisodeForScanAsync(Guid seriesId, int seasonNumber, int episodeNumber, CancellationToken ct);
 
     Task<MediaSource?> FindSourceByPathAsync(string path, CancellationToken ct);
+
+    /// <summary>TRACKED source with streams — used to backfill probe tags (title/disposition) on re-scan.</summary>
+    Task<MediaSource?> GetTrackedSourceByPathWithStreamsAsync(string path, CancellationToken ct);
+
     Task<MediaSource?> GetSourceByIdAsync(Guid id, CancellationToken ct);
     Task<MediaSource?> GetPrimarySourceForMediaAsync(Guid mediaId, CancellationToken ct);
 

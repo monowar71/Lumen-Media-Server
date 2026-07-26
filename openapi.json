@@ -1492,43 +1492,59 @@
         }
       },
       "put": {
-        "tags": ["Metadata"],
+        "tags": [
+          "Metadata"
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "kind",
             "in": "path",
             "required": true,
-            "schema": { "$ref": "#/components/schemas/ArtworkKind" }
+            "schema": {
+              "$ref": "#/components/schemas/ArtworkKind"
+            }
           }
         ],
         "requestBody": {
           "content": {
             "application/json": {
-              "schema": { "$ref": "#/components/schemas/SetItemArtworkRequest" }
+              "schema": {
+                "$ref": "#/components/schemas/SetItemArtworkRequest"
+              }
             }
           },
           "required": true
         },
         "responses": {
-          "204": { "description": "No Content" }
+          "204": {
+            "description": "No Content"
+          }
         }
       }
     },
     "/api/v1/items/{id}/artwork-candidates": {
       "get": {
-        "tags": ["Metadata"],
+        "tags": [
+          "Metadata"
+        ],
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "schema": { "type": "string", "format": "uuid" }
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
           },
           {
             "name": "kind",
@@ -1546,7 +1562,9 @@
               "application/json": {
                 "schema": {
                   "type": "array",
-                  "items": { "$ref": "#/components/schemas/ArtworkCandidateDto" }
+                  "items": {
+                    "$ref": "#/components/schemas/ArtworkCandidateDto"
+                  }
                 }
               }
             }
@@ -2627,6 +2645,13 @@
               "string"
             ]
           },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Container track title — often the dubbing studio (LostFilm, MovieDalen, …)."
+          },
           "codec": {
             "type": [
               "null",
@@ -3161,8 +3186,8 @@
           "status": {
             "$ref": "#/components/schemas/ImportStatus"
           },
-          "parsed": { },
-          "candidates": { },
+          "parsed": {},
+          "candidates": {},
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -3779,33 +3804,67 @@
         }
       },
       "ArtworkCandidateDto": {
-        "required": ["provider", "kind", "url", "thumbnailUrl"],
+        "required": [
+          "provider",
+          "kind",
+          "url",
+          "thumbnailUrl"
+        ],
         "type": "object",
         "properties": {
-          "provider": { "type": "string" },
-          "kind": { "type": "string" },
-          "url": { "type": "string" },
-          "thumbnailUrl": { "type": "string" },
-          "language": { "type": ["null", "string"] },
+          "provider": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string"
+          },
+          "language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "width": {
-            "type": ["null", "integer", "string"],
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
             "format": "int32"
           },
           "height": {
-            "type": ["null", "integer", "string"],
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
             "format": "int32"
           },
           "voteAverage": {
-            "type": ["null", "number", "string"],
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
             "format": "double"
           }
         }
       },
       "SetItemArtworkRequest": {
-        "required": ["url"],
+        "required": [
+          "url"
+        ],
         "type": "object",
         "properties": {
-          "url": { "type": "string" }
+          "url": {
+            "type": "string"
+          }
         }
       },
       "MetadataMatchCandidateDto": {
@@ -4929,11 +4988,24 @@
               "string"
             ]
           },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "description": "Container track title (e.g. \"Russian (Forced)\", \"English (SDH)\")."
+          },
           "format": {
             "type": [
               "null",
               "string"
             ]
+          },
+          "isDefault": {
+            "type": "boolean"
+          },
+          "isForced": {
+            "type": "boolean"
           },
           "deliveryUrl": {
             "type": "string"
@@ -5249,7 +5321,7 @@
           "role": {
             "$ref": "#/components/schemas/UserRole"
           },
-          "libraryAccess": { },
+          "libraryAccess": {},
           "allowTranscoding": {
             "type": "boolean"
           },

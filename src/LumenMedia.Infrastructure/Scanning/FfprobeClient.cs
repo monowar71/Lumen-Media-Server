@@ -145,8 +145,20 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
                 if (kind == StreamKind.Subtitle)
                     stream.SubtitleFormat = stream.Codec;
 
-                if (s.TryGetProperty("tags", out var tags) && tags.TryGetProperty("language", out var lang))
-                    stream.Language = lang.GetString();
+                if (s.TryGetProperty("tags", out var tags))
+                {
+                    // Dubbing studio / track name (e.g. LostFilm, MovieDalen) lives in tags.title.
+                    if (tags.TryGetProperty("title", out var title))
+                        stream.Title = NullIfWhiteSpace(title.GetString());
+                    if (tags.TryGetProperty("language", out var lang))
+                        stream.Language = NullIfWhiteSpace(lang.GetString());
+                }
+
+                if (s.TryGetProperty("disposition", out var disposition))
+                {
+                    stream.IsDefault = IsDispositionFlagSet(disposition, "default");
+                    stream.IsForced = IsDispositionFlagSet(disposition, "forced");
+                }
 
                 streams.Add(stream);
                 index++;
@@ -154,5 +166,25 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
         }
 
         return new ProbeResult(durationMs, overallBitrate, streams);
+    }
+
+    /// <summary>Exposed for unit tests — parses ffprobe JSON into domain streams.</summary>
+    internal static ProbeResult ParseForTests(string json) => Parse(json);
+
+    private static string? NullIfWhiteSpace(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static bool IsDispositionFlagSet(JsonElement disposition, string name)
+    {
+        if (!disposition.TryGetProperty(name, out var flag))
+            return false;
+        return flag.ValueKind switch
+        {
+            JsonValueKind.Number => flag.TryGetInt32(out var n) && n != 0,
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            JsonValueKind.String => flag.GetString() is "1" or "true" or "True",
+            _ => false,
+        };
     }
 }

@@ -277,6 +277,11 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
     public Task<MediaSource?> FindSourceByPathAsync(string path, CancellationToken ct) =>
         db.MediaSources.AsNoTracking().FirstOrDefaultAsync(s => s.Path == path, ct);
 
+    public Task<MediaSource?> GetTrackedSourceByPathWithStreamsAsync(string path, CancellationToken ct) =>
+        db.MediaSources
+            .Include(s => s.Streams)
+            .FirstOrDefaultAsync(s => s.Path == path, ct);
+
     public Task<MediaSource?> GetSourceByIdAsync(Guid id, CancellationToken ct) =>
         db.MediaSources.AsNoTracking()
             .Include(s => s.Streams)

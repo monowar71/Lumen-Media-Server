@@ -323,6 +323,7 @@ public sealed class PlaybackService(
             {
                 Id = s.Id,
                 Language = s.Language,
+                Title = s.Title,
                 Codec = s.Codec,
                 Channels = s.Channels,
                 IsDefault = s.IsDefault,
@@ -335,7 +336,10 @@ public sealed class PlaybackService(
             {
                 Id = s.Id,
                 Language = s.Language,
+                Title = s.Title,
                 Format = s.SubtitleFormat ?? s.Codec,
+                IsDefault = s.IsDefault,
+                IsForced = s.IsForced,
                 DeliveryUrl = ArtworkUrlBuilder.SubtitleUrl(mediaId, s.Id),
             }).ToList();
 

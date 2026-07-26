@@ -40,6 +40,8 @@ public sealed record AudioStreamOption
 {
     public required Guid Id { get; init; }
     public string? Language { get; init; }
+    /// <summary>Container track title — often the dubbing studio (LostFilm, MovieDalen, …).</summary>
+    public string? Title { get; init; }
     public string? Codec { get; init; }
     public int? Channels { get; init; }
     public bool IsDefault { get; init; }
@@ -49,7 +51,11 @@ public sealed record SubtitleStreamOption
 {
     public required Guid Id { get; init; }
     public string? Language { get; init; }
+    /// <summary>Container track title (e.g. "Russian (Forced)", "English (SDH)").</summary>
+    public string? Title { get; init; }
     public string? Format { get; init; }
+    public bool IsDefault { get; init; }
+    public bool IsForced { get; init; }
     public required string DeliveryUrl { get; init; }
 }
 
