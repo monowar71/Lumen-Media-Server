@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Android / native players no longer stop every 15 minutes: HLS and DirectPlay under `/api/v1/stream/{sessionId}/…` use the session id as a capability URL, so playback continues after the short-lived access JWT expires. DirectPlay `streamUrl` is now `/api/v1/stream/{sessionId}/source`.
+
 ### Changed
 
 - CI Docker images are multi-arch (`linux/amd64`, `linux/arm64`), built natively on `ubuntu-latest` + `ubuntu-24.04-arm` (no QEMU).

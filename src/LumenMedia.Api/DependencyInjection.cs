@@ -120,6 +120,12 @@ public static class DependencyInjection
                 // delivered to native elements: <video src> (DirectPlay / native HLS),
                 // <track> subtitles and <img> artwork. For those routes only, accept the
                 // token via the query string (short-lived access token; same pattern as api.md §8).
+                //
+                // HLS / DirectPlay under /api/v1/stream/{sessionId}/… also accept the
+                // unguessable session id as a capability URL (see StreamController) so native
+                // players are not cut off when the 15‑minute access JWT expires mid‑playback.
+                // If a client still appends an expired access_token, do not fail the request —
+                // session capability auth handles those routes.
                 options.Events = new JwtBearerEvents
                 {
                     OnMessageReceived = ctx =>
@@ -127,6 +133,12 @@ public static class DependencyInjection
                         var accessToken = ctx.Request.Query["access_token"];
                         if (!string.IsNullOrEmpty(accessToken) && AllowsQueryToken(ctx.HttpContext.Request.Path))
                             ctx.Token = accessToken;
+                        return Task.CompletedTask;
+                    },
+                    OnAuthenticationFailed = ctx =>
+                    {
+                        if (ctx.HttpContext.Request.Path.StartsWithSegments("/api/v1/stream"))
+                            ctx.NoResult();
                         return Task.CompletedTask;
                     },
                 };

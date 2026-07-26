@@ -1,8 +1,10 @@
+using System.Security.Claims;
 using LumenMedia.Api.Auth;
 using LumenMedia.Application.Abstractions;
 using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Media;
 using LumenMedia.Infrastructure.Configuration;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -16,7 +18,8 @@ public sealed class StreamController(
     IUnitOfWork uow,
     ITranscoder transcoder,
     ISubtitleConverter subtitles,
-    IOptions<PathsOptions> paths) : ControllerBase
+    IOptions<PathsOptions> paths,
+    TimeProvider clock) : ControllerBase
 {
     private const string HlsContentType = "application/vnd.apple.mpegurl";
     private static readonly TimeSpan PlaylistWait = TimeSpan.FromSeconds(45);
@@ -24,10 +27,16 @@ public sealed class StreamController(
     /// can reload the playlist on stall, but long enough for VAAPI cold-start.</summary>
     private static readonly TimeSpan SegmentWait = TimeSpan.FromSeconds(12);
 
+    /// <summary>
+    /// Reserved path segment for DirectPlay — must not be treated as an HLS fragment name.
+    /// </summary>
+    private const string DirectPlaySegment = "source";
+
+    [AllowAnonymous]
     [HttpGet("stream/{sessionId}/master.m3u8")]
     public async Task<IActionResult> Master(string sessionId, CancellationToken ct)
     {
-        var session = GetOwnedSession(sessionId);
+        var session = ResolveStreamSession(sessionId);
         if (session is null)
             return NotFound();
 
@@ -44,10 +53,11 @@ public sealed class StreamController(
         return PhysicalFile(file, HlsContentType);
     }
 
+    [AllowAnonymous]
     [HttpGet("stream/{sessionId}/index.m3u8")]
     public async Task<IActionResult> Index(string sessionId, CancellationToken ct)
     {
-        var session = GetOwnedSession(sessionId);
+        var session = ResolveStreamSession(sessionId);
         if (session is null)
             return NotFound();
 
@@ -65,10 +75,48 @@ public sealed class StreamController(
         return PhysicalFile(file, HlsContentType);
     }
 
+    /// <summary>
+    /// DirectPlay media for a playback session. Auth is the unguessable session id
+    /// (capability URL) so Android / native players survive JWT access-token expiry.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpGet("stream/{sessionId}/source")]
+    public async Task<IActionResult> Source(string sessionId, CancellationToken ct)
+    {
+        var session = ResolveStreamSession(sessionId);
+        if (session is null)
+            return NotFound();
+
+        playback.TouchSession(sessionId);
+
+        var source = await uow.Media.GetSourceByIdAsync(session.MediaSourceId, ct);
+        if (source is null)
+            return NotFound();
+
+        var roots = await ResolveLibraryRootsAsync(source, ct);
+        var fullPath = ResolveRealPath(source.Path);
+        if (!System.IO.File.Exists(fullPath) || !IsUnderAnyRoot(fullPath, roots))
+            return NotFound();
+
+        var fileName = Path.GetFileName(fullPath);
+        if (string.IsNullOrWhiteSpace(fileName))
+            fileName = $"media.{source.Container ?? "mkv"}";
+
+        return PhysicalFile(
+            fullPath,
+            ContentTypeForContainer(source.Container ?? "mkv"),
+            fileDownloadName: fileName,
+            enableRangeProcessing: true);
+    }
+
+    [AllowAnonymous]
     [HttpGet("stream/{sessionId}/{segment}")]
     public async Task<IActionResult> Segment(string sessionId, string segment, CancellationToken ct)
     {
-        var session = GetOwnedSession(sessionId);
+        if (string.Equals(segment, DirectPlaySegment, StringComparison.OrdinalIgnoreCase))
+            return NotFound();
+
+        var session = ResolveStreamSession(sessionId);
         if (session is null)
             return NotFound();
 
@@ -144,10 +192,29 @@ public sealed class StreamController(
         return Content(vtt, "text/vtt");
     }
 
-    private PlaybackSession? GetOwnedSession(string sessionId)
+    /// <summary>
+    /// Resolves a live playback session for media delivery.
+    /// Possession of the unguessable <paramref name="sessionId"/> is sufficient (capability URL)
+    /// so ExoPlayer / native HLS can keep requesting segments after the access JWT expires.
+    /// When a valid authenticated caller is present, ownership is still enforced.
+    /// </summary>
+    private PlaybackSession? ResolveStreamSession(string sessionId)
     {
         var session = sessions.Get(sessionId);
-        return session is not null && session.UserId == User.GetUserId() ? session : null;
+        if (session is null)
+            return null;
+
+        if (session.ExpiresAt <= clock.GetUtcNow())
+            return null;
+
+        if (User.Identity?.IsAuthenticated == true)
+        {
+            var sub = User.FindFirstValue("sub") ?? User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (!Guid.TryParse(sub, out var userId) || session.UserId != userId)
+                return null;
+        }
+
+        return session;
     }
 
     /// <summary>Resolves a segment file inside the session's transcode dir, blocking path traversal.</summary>
