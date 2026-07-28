@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using LumenMedia.Application.Abstractions;
 using LumenMedia.Application.Common;
@@ -14,7 +15,8 @@ public sealed class PlaybackService(
     ITranscoder transcoder,
     IOptions<PlaybackOptions> options,
     TimeProvider clock,
-    IRealtimeNotifier notifier)
+    IRealtimeNotifier notifier,
+    ILogger<PlaybackService> logger)
 {
     private static readonly TimeSpan SessionLifetime = TimeSpan.FromMinutes(30);
     private static readonly HashSet<string> BitmapSubtitleCodecs = new(StringComparer.OrdinalIgnoreCase)
@@ -75,6 +77,15 @@ public sealed class PlaybackService(
         if (decision.Method != PlaybackMethod.DirectPlay)
             await StartTranscodeAsync(session, decision.SelectedQualityId, request.ResumePositionMs, decision.Reason, ct);
 
+        logger.LogInformation(
+            "Playback start {SessionId} media={MediaId} method={Method} quality={Quality} reason={Reason} posMs={PosMs}",
+            sessionId,
+            request.MediaId,
+            decision.Method,
+            decision.SelectedQualityId,
+            decision.Reason,
+            request.ResumePositionMs);
+
         await notifier.NotifyNowPlayingAsync(caller.UserId, request.MediaId, decision.Method, sessionId, ct);
 
         return BuildResponse(session, decision, request.MediaId, source);
@@ -122,6 +133,14 @@ public sealed class PlaybackService(
         else
             await transcoder.StopAsync(sessionId, ct);
 
+        logger.LogInformation(
+            "Playback set-quality {SessionId} method={Method} quality={Quality} reason={Reason} posMs={PosMs}",
+            sessionId,
+            decision.Method,
+            decision.SelectedQualityId,
+            decision.Reason,
+            request.ResumePositionMs);
+
         return BuildResponse(session, decision, session.MediaId, source);
     }
 
@@ -144,6 +163,13 @@ public sealed class PlaybackService(
 
         if (session.Method != PlaybackMethod.DirectPlay)
             await StartTranscodeAsync(session, session.SelectedQualityId, request.PositionMs, session.Reason, ct);
+
+        logger.LogInformation(
+            "Playback seek {SessionId} method={Method} quality={Quality} posMs={PosMs}",
+            sessionId,
+            session.Method,
+            session.SelectedQualityId,
+            request.PositionMs);
 
         var decision = new PlaybackDecisionResult
         {
@@ -182,6 +208,7 @@ public sealed class PlaybackService(
             return;
         await transcoder.StopAsync(sessionId, ct);
         sessions.Remove(sessionId);
+        logger.LogInformation("Playback stop {SessionId}", sessionId);
     }
 
     /// <summary>Resolves the file to serve for Direct Play download, enforcing access.</summary>

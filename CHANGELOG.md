@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-07-28
+
+### Changed
+
+- Clearer production logs: quiet EF SQL / HttpClient noise; structured playback and ffmpeg start/stop/exit lines; job start/done with result; routine metadata enrich at Debug.
+- `/health` and server-info report version `0.1.6`.
+
 ## [0.1.5] - 2026-07-28
 
 ### Changed
@@ -80,7 +87,8 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.6...HEAD
+[0.1.6]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.6
 [0.1.5]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.5
 [0.1.4]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.4
 [0.1.3]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.3

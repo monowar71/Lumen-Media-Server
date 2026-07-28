@@ -34,10 +34,15 @@ public sealed class FfmpegTranscoder(
 
         var args = FfmpegArgumentBuilder.Build(request, outputDir, playbackOptions.Value);
         logger.LogInformation(
-            "Starting ffmpeg for session {SessionId} ({Method}/{Quality}): {Args}",
+            "ffmpeg start {SessionId} method={Method} quality={Quality} posMs={PosMs} hw={Hw}",
             request.Session.SessionId,
             request.Session.Method,
             request.QualityId,
+            request.StartPositionMs,
+            playbackOptions.Value.HardwareAccel);
+        logger.LogDebug(
+            "ffmpeg argv {SessionId}: {Args}",
+            request.Session.SessionId,
             string.Join(' ', args.Select(QuoteForLog)));
 
         var psi = new ProcessStartInfo
@@ -76,8 +81,8 @@ public sealed class FfmpegTranscoder(
         var running = new RunningSession(process, outputDir, playbackOptions.Value);
         _sessions[request.Session.SessionId] = running;
 
-        _ = DrainAsync(process.StandardError, request.Session.SessionId, "stderr", running.Cts.Token);
-        _ = DrainAsync(process.StandardOutput, request.Session.SessionId, "stdout", running.Cts.Token);
+        _ = DrainAsync(process.StandardError, request.Session.SessionId, "stderr", running, running.Cts.Token);
+        _ = DrainAsync(process.StandardOutput, request.Session.SessionId, "stdout", running, running.Cts.Token);
         _ = WatchExitAsync(request.Session.SessionId, running);
         if (playbackOptions.Value.Throttle)
             _ = ThrottleLoopAsync(request.Session.SessionId, running);
@@ -112,6 +117,7 @@ public sealed class FfmpegTranscoder(
             TryDeleteDir(running.OutputDir);
         }
 
+        logger.LogInformation("ffmpeg stop {SessionId}", sessionId);
         return Task.CompletedTask;
     }
 
@@ -163,10 +169,27 @@ public sealed class FfmpegTranscoder(
         try
         {
             await running.Process.WaitForExitAsync(running.Cts.Token);
-            logger.LogInformation(
-                "ffmpeg exited for session {SessionId} with code {Code}",
-                sessionId,
-                running.Process.ExitCode);
+            var code = running.Process.ExitCode;
+            if (code == 0)
+            {
+                logger.LogInformation("ffmpeg exit {SessionId} code={Code}", sessionId, code);
+            }
+            else
+            {
+                var stderr = running.StderrTail.ToString().Trim();
+                if (stderr.Length > 0)
+                {
+                    logger.LogWarning(
+                        "ffmpeg exit {SessionId} code={Code} stderr={Stderr}",
+                        sessionId,
+                        code,
+                        TruncateForLog(stderr, 1500));
+                }
+                else
+                {
+                    logger.LogWarning("ffmpeg exit {SessionId} code={Code}", sessionId, code);
+                }
+            }
         }
         catch (OperationCanceledException)
         {
@@ -182,9 +205,14 @@ public sealed class FfmpegTranscoder(
         }
     }
 
-    private async Task DrainAsync(StreamReader reader, string sessionId, string stream, CancellationToken ct)
+    private async Task DrainAsync(
+        StreamReader reader,
+        string sessionId,
+        string stream,
+        RunningSession running,
+        CancellationToken ct)
     {
-        var buffer = new StringBuilder();
+        var buffer = stream == "stderr" ? running.StderrTail : new StringBuilder();
         try
         {
             while (!ct.IsCancellationRequested)
@@ -205,7 +233,7 @@ public sealed class FfmpegTranscoder(
             logger.LogDebug(ex, "ffmpeg {Stream} drain ended for {SessionId}", stream, sessionId);
         }
 
-        if (buffer.Length > 0)
+        if (stream != "stderr" && buffer.Length > 0)
             logger.LogDebug("ffmpeg {Stream} ({SessionId}): {Output}", stream, sessionId, buffer.ToString());
     }
 
@@ -315,6 +343,9 @@ public sealed class FfmpegTranscoder(
     private static string QuoteForLog(string arg) =>
         arg.Contains(' ', StringComparison.Ordinal) ? $"\"{arg}\"" : arg;
 
+    private static string TruncateForLog(string value, int maxChars) =>
+        value.Length <= maxChars ? value : value[..maxChars] + "…";
+
     private sealed class RunningSession(Process process, string outputDir, PlaybackOptions opts)
     {
         public Process Process { get; } = process;
@@ -323,6 +354,7 @@ public sealed class FfmpegTranscoder(
         public int MaxAheadSegments { get; } = Math.Max(3, opts.MaxAheadSegments);
         public int LastRequestedSegment; // field for Interlocked
         public bool Paused;
+        public StringBuilder StderrTail { get; } = new();
     }
 }
 

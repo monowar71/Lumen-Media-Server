@@ -106,7 +106,7 @@ public sealed class MetadataEnricher(
 
         if (item.MetadataLocked && string.IsNullOrEmpty(providerId))
         {
-            logger.LogInformation("Metadata locked for {ItemId}; skip auto enrich", itemId);
+            logger.LogDebug("Metadata locked for {ItemId}; skip auto enrich", itemId);
             return false;
         }
 
@@ -128,7 +128,7 @@ public sealed class MetadataEnricher(
 
         if (details is null)
         {
-            logger.LogInformation("No metadata match for {Title} ({ItemId})", item.Title, itemId);
+            logger.LogDebug("No metadata match for {Title} ({ItemId})", item.Title, itemId);
             return false;
         }
 
@@ -161,7 +161,7 @@ public sealed class MetadataEnricher(
         else if (item is Series series)
             await externalHistoryPromoter.PromoteForSeriesAsync(series, ct);
 
-        logger.LogInformation(
+        logger.LogDebug(
             "Enriched {Title} via {Provider}/{ProviderId}",
             item.Title, details.Provider, details.ProviderId);
         return true;
@@ -483,7 +483,7 @@ public sealed class MetadataEnricher(
         if (updated > 0)
         {
             await uow.SaveChangesAsync(ct);
-            logger.LogInformation("Applied episode metadata to {Count} episode(s) of {Series}", updated, series.Title);
+            logger.LogDebug("Applied episode metadata to {Count} episode(s) of {Series}", updated, series.Title);
         }
     }
 

@@ -67,6 +67,7 @@ public sealed class JobWorker(
         job.Start(clock.GetUtcNow());
         await uow.SaveChangesAsync(ct);
         await SafeNotifyJobAsync(notifier, job, ct);
+        logger.LogInformation("Job start {JobId} type={Type}", request.JobId, request.Type);
 
         ScanResult? scanResult = null;
         Guid? enrichedLibraryId = null;
@@ -203,7 +204,12 @@ public sealed class JobWorker(
                 request.JobId);
         }
 
-        logger.LogInformation("Job {JobId} ({Type}) completed", request.JobId, request.Type);
+        logger.LogInformation(
+            "Job done {JobId} type={Type} state={State}: {Message}",
+            request.JobId,
+            request.Type,
+            job.State,
+            job.Message ?? "");
     }
 
     private static (Guid? ItemId, string? Provider, string? ProviderId) ParseMetadataPayload(string? json)

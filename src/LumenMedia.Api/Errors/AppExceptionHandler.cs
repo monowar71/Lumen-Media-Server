@@ -16,6 +16,10 @@ public sealed class AppExceptionHandler(ILogger<AppExceptionHandler> logger) : I
         switch (exception)
         {
             case ValidationException validation:
+                logger.LogWarning(
+                    "Request validation failed at {Path}: {Detail}",
+                    httpContext.Request.Path,
+                    validation.Message);
                 problem = new ValidationProblemDetails(
                     validation.Errors.ToDictionary(kv => kv.Key, kv => kv.Value))
                 {
@@ -27,6 +31,12 @@ public sealed class AppExceptionHandler(ILogger<AppExceptionHandler> logger) : I
                 break;
 
             case AppException app:
+                logger.LogWarning(
+                    "Request {ErrorType} ({Status}) at {Path}: {Detail}",
+                    app.ErrorType,
+                    app.StatusCode,
+                    httpContext.Request.Path,
+                    app.Message);
                 problem = new ProblemDetails
                 {
                     Type = TypeBase + app.ErrorType,

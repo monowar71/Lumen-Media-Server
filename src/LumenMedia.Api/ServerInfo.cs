@@ -6,7 +6,7 @@ namespace LumenMedia.Api;
 public static class ServerInfo
 {
     public const string Name = "LumenMedia";
-    public const string Version = "0.1.5";
+    public const string Version = "0.1.6";
 
     private static readonly long StartTimestamp = Stopwatch.GetTimestamp();
 
