@@ -106,7 +106,7 @@ public class FfmpegArgumentBuilderTests
     }
 
     [Fact]
-    public void Vaapi_transcode_uses_hwupload_and_scale_vaapi()
+    public void Vaapi_transcode_uses_hwaccel_decode_and_scale_vaapi()
     {
         var opts = new PlaybackOptions
         {
@@ -120,11 +120,34 @@ public class FfmpegArgumentBuilderTests
 
         args.Should().ContainInOrder("-init_hw_device", "vaapi=va:/dev/dri/renderD128");
         args.Should().ContainInOrder("-filter_hw_device", "va");
+        args.Should().ContainInOrder("-hwaccel", "vaapi");
+        args.Should().ContainInOrder("-hwaccel_device", "va");
+        args.Should().ContainInOrder("-hwaccel_output_format", "vaapi");
         args.Should().ContainInOrder("-c:v", "h264_vaapi");
-        args.Should().ContainInOrder("-vf", "format=nv12,hwupload,scale_vaapi=-2:720");
+        args.Should().ContainInOrder("-vf", "scale_vaapi=-2:720:format=nv12");
+        args.Should().NotContain(a => a.Contains("hwupload", StringComparison.Ordinal));
         args.Should().NotContain("libx264");
         args.Should().NotContain("-preset");
         args.Should().NotContain("yuv420p");
+
+        var hwaccel = args.ToList().IndexOf("-hwaccel");
+        var input = args.ToList().IndexOf("-i");
+        hwaccel.Should().BeGreaterThanOrEqualTo(0);
+        input.Should().BeGreaterThan(hwaccel);
+    }
+
+    [Fact]
+    public void Vaapi_transcode_at_source_resolution_converts_format_on_gpu()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "vaapi" };
+        var args = FfmpegArgumentBuilder.Build(
+            Request(PlaybackMethod.Transcode, "auto", "VideoCodecNotSupported") with { SourceHeight = 2160, SourceWidth = 3840 },
+            "/tmp/out",
+            opts);
+
+        args.Should().ContainInOrder("-hwaccel", "vaapi");
+        args.Should().ContainInOrder("-vf", "scale_vaapi=format=nv12");
+        args.Should().ContainInOrder("-c:v", "h264_vaapi");
     }
 
     [Fact]
@@ -140,6 +163,7 @@ public class FfmpegArgumentBuilderTests
         args.Should().ContainInOrder("-c:v", "libx264");
         args.Should().NotContain("h264_vaapi");
         args.Should().NotContain("-init_hw_device");
+        args.Should().NotContain("-hwaccel");
     }
 
     [Fact]

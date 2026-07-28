@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-07-28
+
+### Changed
+
+- VAAPI transcode now uses hardware decode (`-hwaccel vaapi`) and keeps frames on-GPU via `scale_vaapi=…:format=nv12` instead of software decode + `hwupload` (cuts CPU load on 4K HEVC).
+- `/health` and server-info report version `0.1.5`.
+
+## [0.1.4] - 2026-07-26
+
+### Fixed
+
+- Series scan matching uses `Title` or `OriginalTitle` so localized library cards do not spawn duplicate series.
+
+## [0.1.3] - 2026-07-26
+
+### Security
+
+- Scope SignalR session events; enforce library ACL on progress/history; admin-only jobs; harden outbound URL fetches; refresh-token reuse revoke; Production CORS required.
+
 ## [0.1.2] - 2026-07-26
 
 ### Added
@@ -61,7 +80,10 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.5
+[0.1.4]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.4
+[0.1.3]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.3
 [0.1.2]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.2
 [0.1.1]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.1
 [0.1.0]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.0

@@ -383,10 +383,19 @@ public static class FfmpegArgumentBuilder
             var device = string.IsNullOrWhiteSpace(opts.VaapiDevice)
                 ? "/dev/dri/renderD128"
                 : opts.VaapiDevice;
+            // Named device shared by hwaccel decode and scale_vaapi / h264_vaapi.
             args.Add("-init_hw_device");
             args.Add($"vaapi=va:{device}");
             args.Add("-filter_hw_device");
             args.Add("va");
+            // Decode on the GPU — without this, ffmpeg does software decode then hwupload,
+            // which saturates CPU on 4K HEVC Main10 / HDR and falls below realtime.
+            args.Add("-hwaccel");
+            args.Add("vaapi");
+            args.Add("-hwaccel_device");
+            args.Add("va");
+            args.Add("-hwaccel_output_format");
+            args.Add("vaapi");
         }
 
         if (request.StartPositionMs > 0)
@@ -441,11 +450,12 @@ public static class FfmpegArgumentBuilder
 
             if (useVaapi)
             {
-                // Upload to VAAPI surface; optional HW scale. Bitrate (not CRF) for vaapi.
+                // Frames already on a VAAPI surface from hwaccel decode. Stay on-GPU:
+                // scale_vaapi (optional) + format=nv12 for h264_vaapi. No hwupload round-trip.
                 var needScale = scaleHeight is int sh && (request.SourceHeight is null || sh < request.SourceHeight);
                 var vf = needScale
-                    ? $"format=nv12,hwupload,scale_vaapi=-2:{scaleHeight}"
-                    : "format=nv12,hwupload";
+                    ? $"scale_vaapi=-2:{scaleHeight}:format=nv12"
+                    : "scale_vaapi=format=nv12";
                 args.Add("-vf");
                 args.Add(vf);
                 var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 4000;
