@@ -42,6 +42,7 @@ public sealed class StreamController(
             return NotFound();
 
         playback.TouchSession(sessionId);
+        transcoder.NotifyPlaybackActive(sessionId);
 
         var file = SegmentPath(sessionId, "master.m3u8");
         if (file is null)
@@ -63,6 +64,7 @@ public sealed class StreamController(
             return NotFound();
 
         playback.TouchSession(sessionId);
+        transcoder.NotifyPlaybackActive(sessionId);
 
         var file = SegmentPath(sessionId, "index.m3u8");
         if (file is null)

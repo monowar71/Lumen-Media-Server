@@ -22,6 +22,7 @@ public sealed class LumenMediaApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("LumenMedia:Database:ConnectionString", $"Data Source={DbPath}");
         builder.UseSetting("LumenMedia:Paths:Config", _root);
         builder.UseSetting("LumenMedia:Paths:Transcodes", Path.Combine(_root, "transcodes"));
+        builder.UseSetting("LumenMedia:Paths:Subtitles", Path.Combine(_root, "subtitles"));
         builder.UseSetting("LumenMedia:Paths:Downloads", Path.Combine(_root, "downloads"));
         builder.UseSetting("Jwt:Secret", "integration-test-signing-key-that-is-long-enough-1234567890");
     }

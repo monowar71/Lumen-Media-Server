@@ -132,6 +132,13 @@ public sealed class FfmpegTranscoder(
         TryResume(running);
     }
 
+    public void NotifyPlaybackActive(string sessionId)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var running))
+            return;
+        TryResume(running);
+    }
+
     public async ValueTask DisposeAsync()
     {
         foreach (var id in _sessions.Keys.ToArray())
@@ -147,6 +154,15 @@ public sealed class FfmpegTranscoder(
                 await Task.Delay(500, running.Cts.Token);
                 var written = CountMediaSegments(running.OutputDir);
                 var requested = Volatile.Read(ref running.LastRequestedSegment);
+                // Do not pause until the player has pulled at least one media segment.
+                // Otherwise a cold start (playlist/init only) or a starved client leaves
+                // ffmpeg SIGSTOP'd forever while the UI spins on buffering.
+                if (requested < 0)
+                {
+                    TryResume(running);
+                    continue;
+                }
+
                 var ahead = written - (requested + 1);
                 if (ahead >= running.MaxAheadSegments)
                     TryPause(running);
@@ -352,7 +368,8 @@ public sealed class FfmpegTranscoder(
         public string OutputDir { get; } = outputDir;
         public CancellationTokenSource Cts { get; } = new();
         public int MaxAheadSegments { get; } = Math.Max(3, opts.MaxAheadSegments);
-        public int LastRequestedSegment; // field for Interlocked
+        /// <summary>-1 until the player requests <c>segmentN.m4s</c> (see throttle loop).</summary>
+        public int LastRequestedSegment = -1;
         public bool Paused;
         public StringBuilder StderrTail { get; } = new();
     }
@@ -366,15 +383,15 @@ public static class FfmpegArgumentBuilder
         var method = request.Session.Method;
         var qualityId = request.QualityId;
         var rung = opts.EffectiveLadder.FirstOrDefault(r => r.Id == qualityId);
-        var downscale = rung is not null
-                        && !qualityId.Equals("auto", StringComparison.OrdinalIgnoreCase)
-                        && !qualityId.Equals("original", StringComparison.OrdinalIgnoreCase);
+        var isOpenEndedQuality = qualityId.Equals("auto", StringComparison.OrdinalIgnoreCase)
+                                 || qualityId.Equals("original", StringComparison.OrdinalIgnoreCase);
 
         // Audio-only remux (-c:v copy) follows source keyframes. BluRay-style ~10s GOPs
         // produce ~20–30 MB HLS segments that stall players (SegmentWait is short, ABR
         // cannot recover). Always re-encode video so segments stay near SegmentDurationSec.
         var encodeVideo = method == PlaybackMethod.Transcode && (
-            downscale
+            rung is not null
+            || isOpenEndedQuality
             || ContainsReason(request.Reason, "VideoCodecNotSupported")
             || ContainsReason(request.Reason, "HdrNotSupported")
             || ContainsReason(request.Reason, "ResolutionTooHigh")
@@ -387,7 +404,16 @@ public static class FfmpegArgumentBuilder
         // Browser MSE is unreliable with AC3/EAC3 in fMP4; always AAC on Transcode.
         // DirectStream keeps audio copy (codecs already accepted by the profile).
         var encodeAudio = method != PlaybackMethod.DirectStream;
-        var scaleHeight = ResolveScaleHeight(rung, request.SourceHeight);
+        var profileMax = request.MaxOutputHeight
+                         ?? ResolutionLimits.ParseMaxHeight(request.Session.Profile.MaxResolution);
+        var scaleHeight = ResolveScaleHeight(rung, request.SourceHeight, profileMax);
+        // Ladder rungs always get an explicit scale (even when clamped to source height).
+        // auto/original only scale when the profile max is below the source.
+        var needsScale = scaleHeight is int sh && sh > 0 && (
+            rung is not null
+            || request.SourceHeight is null
+            || sh < request.SourceHeight.Value);
+        var videoBitrateKbps = ResolveVideoBitrateKbps(rung, scaleHeight, opts);
         var keyint = Math.Max(24, opts.SegmentDurationSec * 30);
 
         // Burn-in (bitmap overlay) stays on software encode — VAAPI + overlay is fragile.
@@ -484,19 +510,17 @@ public static class FfmpegArgumentBuilder
             {
                 // Frames already on a VAAPI surface from hwaccel decode. Stay on-GPU:
                 // scale_vaapi (optional) + format=nv12 for h264_vaapi. No hwupload round-trip.
-                var needScale = scaleHeight is int sh && (request.SourceHeight is null || sh < request.SourceHeight);
-                var vf = needScale
+                var vf = needsScale
                     ? $"scale_vaapi=-2:{scaleHeight}:format=nv12"
                     : "scale_vaapi=format=nv12";
                 args.Add("-vf");
                 args.Add(vf);
-                var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 4000;
                 args.Add("-b:v");
-                args.Add($"{kbps}k");
+                args.Add($"{videoBitrateKbps}k");
                 args.Add("-maxrate");
-                args.Add($"{kbps}k");
+                args.Add($"{videoBitrateKbps}k");
                 args.Add("-bufsize");
-                args.Add($"{kbps * 2}k");
+                args.Add($"{videoBitrateKbps * 2}k");
             }
             else
             {
@@ -510,39 +534,18 @@ public static class FfmpegArgumentBuilder
 
                 args.Add("-pix_fmt");
                 args.Add("yuv420p");
-                if (downscale && rung is not null && !burnIn)
+                if (needsScale && !burnIn)
                 {
                     args.Add("-vf");
                     args.Add($"scale=-2:{scaleHeight}");
-                    args.Add("-b:v");
-                    args.Add($"{rung.VideoBitrateKbps}k");
-                    args.Add("-maxrate");
-                    args.Add($"{rung.VideoBitrateKbps}k");
-                    args.Add("-bufsize");
-                    args.Add($"{rung.VideoBitrateKbps * 2}k");
                 }
-                else if (downscale && rung is not null && burnIn)
-                {
-                    // scale cannot be combined with filter_complex overlay easily — bitrate-cap only.
-                    args.Add("-b:v");
-                    args.Add($"{rung.VideoBitrateKbps}k");
-                    args.Add("-maxrate");
-                    args.Add($"{rung.VideoBitrateKbps}k");
-                    args.Add("-bufsize");
-                    args.Add($"{rung.VideoBitrateKbps * 2}k");
-                }
-                else
-                {
-                    // Audio-remux / auto at source resolution: keep bitrates modest so
-                    // seek restarts produce the first HLS segment quickly on HDD/VAAPI.
-                    var kbps = rung?.VideoBitrateKbps > 0 ? rung.VideoBitrateKbps : 4000;
-                    args.Add("-b:v");
-                    args.Add($"{kbps}k");
-                    args.Add("-maxrate");
-                    args.Add($"{kbps}k");
-                    args.Add("-bufsize");
-                    args.Add($"{kbps * 2}k");
-                }
+
+                args.Add("-b:v");
+                args.Add($"{videoBitrateKbps}k");
+                args.Add("-maxrate");
+                args.Add($"{videoBitrateKbps}k");
+                args.Add("-bufsize");
+                args.Add($"{videoBitrateKbps * 2}k");
             }
         }
         else
@@ -618,13 +621,38 @@ public static class FfmpegArgumentBuilder
         !string.IsNullOrEmpty(reason)
         && reason.Contains(token, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Clamp ladder height to the source frame — never upscale open-matte / short frames.</summary>
-    private static int? ResolveScaleHeight(LadderRung? rung, int? sourceHeight)
+    /// <summary>
+    /// Ladder rung height, else profile max, else source — never upscale.
+    /// </summary>
+    private static int? ResolveScaleHeight(LadderRung? rung, int? sourceHeight, int? profileMaxHeight)
     {
-        if (rung is null)
+        int? target = rung?.Height;
+        if (target is null && profileMaxHeight is int ph && ph > 0)
+            target = ph;
+        if (target is null)
             return sourceHeight;
         if (sourceHeight is int sh && sh > 0)
-            return Math.Min(rung.Height, sh);
-        return rung.Height;
+            return Math.Min(target.Value, sh);
+        return target;
+    }
+
+    private static int ResolveVideoBitrateKbps(LadderRung? rung, int? scaleHeight, PlaybackOptions opts)
+    {
+        if (rung is { VideoBitrateKbps: > 0 })
+            return rung.VideoBitrateKbps;
+
+        if (scaleHeight is int h && h > 0)
+        {
+            // Prefer the cheapest rung at the target height (1080p over 1080p-high for auto/original).
+            var match = opts.EffectiveLadder
+                .Where(r => r.Height <= h)
+                .OrderByDescending(r => r.Height)
+                .ThenBy(r => r.VideoBitrateKbps)
+                .FirstOrDefault();
+            if (match is not null)
+                return match.VideoBitrateKbps;
+        }
+
+        return 4000;
     }
 }

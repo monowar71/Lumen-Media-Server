@@ -53,6 +53,11 @@ public sealed record TranscodeRequest
     /// <summary>Source video frame size — used to clamp ladder scales (no upscale).</summary>
     public int? SourceWidth { get; init; }
     public int? SourceHeight { get; init; }
+    /// <summary>
+    /// Device-profile max height (e.g. 1080). Applied to <c>auto</c>/<c>original</c> so
+    /// ResolutionTooHigh does not re-encode full 4K when the client cannot Direct Play it.
+    /// </summary>
+    public int? MaxOutputHeight { get; init; }
 }
 
 public interface ITranscoder
@@ -61,5 +66,7 @@ public interface ITranscoder
     Task StopAsync(string sessionId, CancellationToken ct);
     /// <summary>Player requested a media segment — used to resume a throttled ffmpeg.</summary>
     void NotifySegmentRequested(string sessionId, string segmentFileName);
+    /// <summary>Player hit the playlist (or init) — resume throttle without advancing the segment cursor.</summary>
+    void NotifyPlaybackActive(string sessionId);
     int ActiveSessionCount { get; }
 }

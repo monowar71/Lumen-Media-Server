@@ -37,7 +37,7 @@ static void EnsureStorageDirectories(WebApplication app)
 {
     var paths = app.Services.GetRequiredService<IOptions<PathsOptions>>().Value;
     var db = app.Services.GetRequiredService<IOptions<DatabaseOptions>>().Value;
-    foreach (var dir in new[] { paths.Config, paths.Transcodes })
+    foreach (var dir in new[] { paths.Config, paths.Transcodes, paths.Subtitles })
     {
         if (!string.IsNullOrWhiteSpace(dir))
             Directory.CreateDirectory(dir);

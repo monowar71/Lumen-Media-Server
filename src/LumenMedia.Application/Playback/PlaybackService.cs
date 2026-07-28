@@ -246,6 +246,7 @@ public sealed class PlaybackService(
                 SubtitleBurnInIndex = session.SubtitleBurnInIndex,
                 SourceWidth = video?.Width,
                 SourceHeight = video?.Height,
+                MaxOutputHeight = ResolutionLimits.ParseMaxHeight(session.Profile.MaxResolution),
             },
             ct);
     }

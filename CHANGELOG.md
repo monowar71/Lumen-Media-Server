@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-07-29
+
+### Fixed
+
+- Playback hang after quality change / seek: do not pause ffmpeg (`SIGSTOP`) until the player has requested a media segment; resume throttle on playlist GET.
+- Web/Android clients mounting every subtitle `deliveryUrl` at once starved HLS behind long VTT extractions from large MKVs (browser ~6 connections/host).
+- `auto` / `original` Transcode ignored `profile.maxResolution` and re-encoded full 4K @ 4000k when the reason was `ResolutionTooHigh`.
+
+### Added
+
+- Disk cache for converted WebVTT under `/config/subtitles/{sourceId}/{streamId}.vtt` (avoids re-scanning multi‑GB containers).
+- `Paths:Subtitles` config; single-flight conversion per cache key.
+
+### Changed
+
+- `/health` and server-info report version `0.1.7`.
+
 ## [0.1.6] - 2026-07-28
 
 ### Changed
@@ -87,7 +104,8 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.6...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.7
 [0.1.6]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.6
 [0.1.5]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.5
 [0.1.4]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.4

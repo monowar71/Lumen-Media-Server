@@ -182,6 +182,37 @@ public class FfmpegArgumentBuilderTests
     }
 
     [Fact]
+    public void Original_transcode_clamps_to_profile_max_height()
+    {
+        var request = Request(PlaybackMethod.Transcode, "original", "ResolutionTooHigh") with
+        {
+            SourceHeight = 2160,
+            SourceWidth = 3840,
+            MaxOutputHeight = 1080,
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", new PlaybackOptions());
+
+        args.Should().ContainInOrder("-vf", "scale=-2:1080");
+        args.Should().ContainInOrder("-b:v", "10000k");
+    }
+
+    [Fact]
+    public void Auto_vaapi_transcode_clamps_to_profile_max_height()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "vaapi" };
+        var request = Request(PlaybackMethod.Transcode, "auto", "ResolutionTooHigh") with
+        {
+            SourceHeight = 2160,
+            SourceWidth = 3840,
+            MaxOutputHeight = 1080,
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", opts);
+
+        args.Should().ContainInOrder("-vf", "scale_vaapi=-2:1080:format=nv12");
+        args.Should().ContainInOrder("-b:v", "10000k");
+    }
+
+    [Fact]
     public void Never_builds_a_shell_string_path_stays_own_argv()
     {
         var args = FfmpegArgumentBuilder.Build(

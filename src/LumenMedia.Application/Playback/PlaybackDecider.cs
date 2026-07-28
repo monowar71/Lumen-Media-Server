@@ -85,7 +85,7 @@ public sealed class PlaybackDecider
         if (!string.IsNullOrEmpty(video.Hdr) && !profile.SupportsHdr)
             return (PlaybackMethod.Transcode, "HdrNotSupported");
 
-        var maxHeight = ParseMaxHeight(profile.MaxResolution);
+        var maxHeight = ResolutionLimits.ParseMaxHeight(profile.MaxResolution);
         if (maxHeight is not null && video.Height is not null && video.Height > maxHeight)
             return (PlaybackMethod.Transcode, "ResolutionTooHigh");
 
@@ -214,23 +214,6 @@ public sealed class PlaybackDecider
             return w % 2 == 0 ? w : w + 1;
         }
         return (int)Math.Round(height * 16.0 / 9.0);
-    }
-
-    private static int? ParseMaxHeight(string? maxResolution)
-    {
-        if (string.IsNullOrWhiteSpace(maxResolution))
-            return null;
-        var res = maxResolution.Trim().ToLowerInvariant();
-        return res switch
-        {
-            "4k" or "uhd" or "2160p" => 2160,
-            "1440p" or "qhd" => 1440,
-            "1080p" or "fhd" => 1080,
-            "720p" or "hd" => 720,
-            "480p" or "sd" => 480,
-            "360p" => 360,
-            _ => int.TryParse(res.TrimEnd('p'), out var h) ? h : null,
-        };
     }
 
     private static bool ContainsIgnoreCase(IReadOnlyList<string> list, string value) =>

@@ -12,6 +12,8 @@ public sealed class PathsOptions
     public string Config { get; set; } = "/config";
     public string Downloads { get; set; } = "/downloads";
     public string Transcodes { get; set; } = "/config/transcodes";
+    /// <summary>Disk cache for converted WebVTT sidecars (<c>{Config}/subtitles</c> by default).</summary>
+    public string Subtitles { get; set; } = "/config/subtitles";
 }
 
 /// <summary>JWT signing/validation options. Secret must come from env/user-secrets, never appsettings.</summary>
