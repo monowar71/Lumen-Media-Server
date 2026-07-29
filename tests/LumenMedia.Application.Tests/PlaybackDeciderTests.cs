@@ -173,4 +173,84 @@ public class PlaybackDeciderTests
         result.Method.Should().Be(PlaybackMethod.DirectPlay);
         result.SelectedQualityId.Should().Be("original");
     }
+
+    [Fact]
+    public void Hdr_without_support_forces_transcode_and_tonemap()
+    {
+        var result = _decider.Decide(
+            BuildSource(hdr: "HDR10"),
+            Profile(supportsHdr: false),
+            PlaybackMode.Auto,
+            null,
+            _options);
+
+        result.Method.Should().Be(PlaybackMethod.Transcode);
+        result.Reason.Should().Be("HdrNotSupported");
+        result.ToneMapActive.Should().BeTrue();
+        result.SourceHdr.Should().Be("HDR10");
+    }
+
+    [Fact]
+    public void Force_hdr_to_sdr_when_device_supports_hdr()
+    {
+        var result = _decider.Decide(
+            BuildSource(hdr: "HDR10"),
+            Profile(supportsHdr: true, videoCodecs: ["h264"], supportsHevc: false),
+            PlaybackMode.Auto,
+            null,
+            _options,
+            forceHdrToSdr: true);
+
+        result.Method.Should().Be(PlaybackMethod.Transcode);
+        result.Reason.Should().Be("ForceHdrToSdr");
+        result.ToneMapActive.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Hdr_passthrough_when_supported_and_not_forced()
+    {
+        var result = _decider.Decide(
+            BuildSource(hdr: "HDR10"),
+            Profile(supportsHdr: true),
+            PlaybackMode.Auto,
+            null,
+            _options);
+
+        result.Method.Should().Be(PlaybackMethod.DirectPlay);
+        result.ToneMapActive.Should().BeFalse();
+        result.SourceHdr.Should().Be("HDR10");
+    }
+
+    [Fact]
+    public void Audio_downmix_to_stereo_forces_transcode()
+    {
+        var result = _decider.Decide(
+            BuildSource(),
+            Profile(),
+            PlaybackMode.Manual,
+            "original",
+            _options,
+            audioLayout: "stereo");
+
+        // Source is 6ch; stereo downmix requires encode.
+        result.Method.Should().Be(PlaybackMethod.Transcode);
+        result.Reason.Should().Be("AudioDownmix");
+        result.SelectedAudioLayout.Should().Be("stereo");
+        result.AvailableAudioLayouts.Select(l => l.Id).Should().Contain(["mono", "stereo", "2.1", "5.1"]);
+    }
+
+    [Fact]
+    public void Audio_layout_5_1_keeps_direct_play_when_source_is_6ch()
+    {
+        var result = _decider.Decide(
+            BuildSource(),
+            Profile(),
+            PlaybackMode.Manual,
+            "original",
+            _options,
+            audioLayout: "5.1");
+
+        result.Method.Should().Be(PlaybackMethod.DirectPlay);
+        result.SelectedAudioLayout.Should().Be("5.1");
+    }
 }

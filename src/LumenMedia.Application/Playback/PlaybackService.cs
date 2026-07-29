@@ -35,7 +35,16 @@ public sealed class PlaybackService(
         var user = await uow.Users.GetByIdAsync(caller.UserId, ct);
         var userCap = user?.MaxBitrateRemoteKbps;
 
-        var decision = decider.Decide(source, request.Profile, request.Mode, request.QualityId, opts, userCap);
+        var decision = decider.Decide(
+            source,
+            request.Profile,
+            request.Mode,
+            request.QualityId,
+            opts,
+            userCap,
+            request.ForceHdrToSdr,
+            request.AudioLayout,
+            request.AudioStreamId);
         var (audioIndex, burnInIndex, reasonOverride) = ResolveTracks(source, request.AudioStreamId, request.SubtitleStreamId, decision.Reason);
         if (reasonOverride is not null)
             decision = decision with { Method = PlaybackMethod.Transcode, Reason = reasonOverride };
@@ -69,6 +78,8 @@ public sealed class PlaybackService(
             SubtitleBurnInIndex = burnInIndex,
             Profile = request.Profile,
             Reason = decision.Reason,
+            ForceHdrToSdr = request.ForceHdrToSdr,
+            AudioLayout = decision.SelectedAudioLayout,
             CreatedAt = now,
             ExpiresAt = now + SessionLifetime,
             LastAccess = now,
@@ -104,7 +115,18 @@ public sealed class PlaybackService(
         var opts = options.Value;
         var user = await uow.Users.GetByIdAsync(caller.UserId, ct);
         var userCap = user?.MaxBitrateRemoteKbps;
-        var decision = decider.Decide(source, session.Profile, request.Mode, request.QualityId, opts, userCap);
+        var forceHdr = request.ForceHdrToSdr ?? session.ForceHdrToSdr;
+        var audioLayout = request.AudioLayout ?? session.AudioLayout;
+        var decision = decider.Decide(
+            source,
+            session.Profile,
+            request.Mode,
+            request.QualityId,
+            opts,
+            userCap,
+            forceHdr,
+            audioLayout,
+            request.AudioStreamId);
         var (audioIndex, burnInIndex, reasonOverride) = ResolveTracks(
             source,
             request.AudioStreamId,
@@ -125,6 +147,8 @@ public sealed class PlaybackService(
         session.Reason = decision.Reason;
         session.AudioStreamIndex = audioIndex;
         session.SubtitleBurnInIndex = burnInIndex;
+        session.ForceHdrToSdr = forceHdr;
+        session.AudioLayout = decision.SelectedAudioLayout;
         session.LastAccess = clock.GetUtcNow();
         sessions.Touch(sessionId, clock.GetUtcNow() + SessionLifetime);
 
@@ -182,7 +206,20 @@ public sealed class PlaybackService(
                 session.Mode,
                 session.Mode == PlaybackMode.Manual ? session.SelectedQualityId : null,
                 options.Value,
-                (await uow.Users.GetByIdAsync(caller.UserId, ct))?.MaxBitrateRemoteKbps).AvailableQualities,
+                (await uow.Users.GetByIdAsync(caller.UserId, ct))?.MaxBitrateRemoteKbps,
+                session.ForceHdrToSdr,
+                session.AudioLayout).AvailableQualities,
+            ToneMapActive = PlaybackDecider.NeedsToneMap(
+                source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video)?.Hdr,
+                session.Profile.SupportsHdr,
+                session.ForceHdrToSdr),
+            SelectedAudioLayout = session.AudioLayout,
+            AvailableAudioLayouts = AudioLayouts.AvailableFor(
+                source.Streams.FirstOrDefault(s =>
+                    s.Kind == StreamKind.Audio
+                    && (session.AudioStreamIndex is null || s.StreamIndex == session.AudioStreamIndex))?.Channels
+                ?? source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Audio)?.Channels),
+            SourceHdr = source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video)?.Hdr,
         };
 
         return BuildResponse(session, decision, session.MediaId, source);
@@ -247,6 +284,8 @@ public sealed class PlaybackService(
                 SourceWidth = video?.Width,
                 SourceHeight = video?.Height,
                 MaxOutputHeight = ResolutionLimits.ParseMaxHeight(session.Profile.MaxResolution),
+                ToneMap = PlaybackDecider.NeedsToneMap(video?.Hdr, session.Profile.SupportsHdr, session.ForceHdrToSdr),
+                AudioLayout = session.AudioLayout,
             },
             ct);
     }
@@ -429,6 +468,12 @@ public sealed class PlaybackService(
             SubtitleStreams = subtitles,
             ExpiresAt = session.ExpiresAt,
             Reason = decision.Reason,
+            SourceHdr = decision.SourceHdr ?? source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video)?.Hdr,
+            ToneMapActive = decision.ToneMapActive,
+            AvailableAudioLayouts = decision.AvailableAudioLayouts.Count > 0
+                ? decision.AvailableAudioLayouts
+                : AudioLayouts.AvailableFor(audio.FirstOrDefault(a => a.IsDefault)?.Channels ?? audio.FirstOrDefault()?.Channels),
+            SelectedAudioLayout = decision.SelectedAudioLayout,
         };
     }
 }

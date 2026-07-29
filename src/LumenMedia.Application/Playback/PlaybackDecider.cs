@@ -10,6 +10,10 @@ public sealed record PlaybackDecisionResult
     public required string Reason { get; init; }
     public required string SelectedQualityId { get; init; }
     public required IReadOnlyList<QualityOption> AvailableQualities { get; init; }
+    public bool ToneMapActive { get; init; }
+    public required string SelectedAudioLayout { get; init; }
+    public IReadOnlyList<AudioLayoutOption> AvailableAudioLayouts { get; init; } = [];
+    public string? SourceHdr { get; init; }
 }
 
 /// <summary>
@@ -25,15 +29,41 @@ public sealed class PlaybackDecider
         PlaybackMode mode,
         string? requestedQualityId,
         PlaybackOptions options,
-        int? userRemoteCapKbps = null)
+        int? userRemoteCapKbps = null,
+        bool forceHdrToSdr = false,
+        string? audioLayout = null,
+        Guid? audioStreamId = null)
     {
         var video = source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
         var audios = source.Streams.Where(s => s.Kind == StreamKind.Audio).ToList();
+        var selectedAudio = ResolveAudioStream(audios, audioStreamId);
+        var sourceChannels = selectedAudio?.Channels;
+        var availableLayouts = AudioLayouts.AvailableFor(sourceChannels);
 
         var cap = ResolveBitrateCap(profile.MaxBitrateKbps, userRemoteCapKbps);
         var availableQualities = BuildLadder(source, video, mode, options, cap);
 
-        var (method, reason) = DecideMethod(source, video, audios, profile, cap);
+        var (method, reason) = DecideMethod(source, video, audios, profile, cap, forceHdrToSdr);
+
+        string selectedLayout;
+        if (!string.IsNullOrWhiteSpace(audioLayout) && AudioLayouts.IsKnown(audioLayout))
+        {
+            selectedLayout = AudioLayouts.Resolve(audioLayout, sourceChannels, encodingAudio: true);
+            if (AudioLayouts.RequiresDownmix(selectedLayout, sourceChannels)
+                && method != PlaybackMethod.Transcode)
+            {
+                method = PlaybackMethod.Transcode;
+                reason = "AudioDownmix";
+            }
+        }
+        else
+        {
+            // No explicit layout: DirectPlay/DirectStream keep source; Transcode defaults to stereo.
+            selectedLayout = AudioLayouts.Resolve(
+                null,
+                sourceChannels,
+                encodingAudio: method == PlaybackMethod.Transcode);
+        }
 
         var selected = ResolveSelectedQuality(mode, requestedQualityId, availableQualities, method);
 
@@ -46,6 +76,17 @@ public sealed class PlaybackDecider
         {
             method = PlaybackMethod.Transcode;
             reason = "ManualQuality";
+            if (string.IsNullOrWhiteSpace(audioLayout))
+                selectedLayout = AudioLayouts.Resolve(null, sourceChannels, encodingAudio: true);
+        }
+
+        var toneMap = NeedsToneMap(video?.Hdr, profile.SupportsHdr, forceHdrToSdr);
+        if (toneMap && method != PlaybackMethod.Transcode)
+        {
+            method = PlaybackMethod.Transcode;
+            reason = forceHdrToSdr ? "ForceHdrToSdr" : "HdrNotSupported";
+            if (string.IsNullOrWhiteSpace(audioLayout))
+                selectedLayout = AudioLayouts.Resolve(null, sourceChannels, encodingAudio: true);
         }
 
         return new PlaybackDecisionResult
@@ -54,8 +95,22 @@ public sealed class PlaybackDecider
             Reason = reason,
             SelectedQualityId = selected,
             AvailableQualities = availableQualities,
+            ToneMapActive = toneMap && method == PlaybackMethod.Transcode,
+            SelectedAudioLayout = selectedLayout,
+            AvailableAudioLayouts = availableLayouts,
+            SourceHdr = string.IsNullOrEmpty(video?.Hdr) ? null : video!.Hdr,
         };
     }
+
+    private static MediaStream? ResolveAudioStream(IReadOnlyList<MediaStream> audios, Guid? audioStreamId)
+    {
+        if (audioStreamId is not null)
+            return audios.FirstOrDefault(a => a.Id == audioStreamId.Value);
+        return audios.FirstOrDefault(a => a.IsDefault) ?? audios.FirstOrDefault();
+    }
+
+    internal static bool NeedsToneMap(string? hdr, bool supportsHdr, bool forceHdrToSdr) =>
+        !string.IsNullOrEmpty(hdr) && (forceHdrToSdr || !supportsHdr);
 
     private static int? ResolveBitrateCap(int? profileCap, int? userCap)
     {
@@ -69,7 +124,8 @@ public sealed class PlaybackDecider
         MediaStream? video,
         IReadOnlyList<MediaStream> audios,
         DeviceProfile profile,
-        int? cap)
+        int? cap,
+        bool forceHdrToSdr)
     {
         if (video is null)
             return (PlaybackMethod.Transcode, "NoVideoStream");
@@ -81,6 +137,9 @@ public sealed class PlaybackDecider
 
         if (!codecSupported || (hevc && !profile.SupportsHevc))
             return (PlaybackMethod.Transcode, "VideoCodecNotSupported");
+
+        if (!string.IsNullOrEmpty(video.Hdr) && forceHdrToSdr)
+            return (PlaybackMethod.Transcode, "ForceHdrToSdr");
 
         if (!string.IsNullOrEmpty(video.Hdr) && !profile.SupportsHdr)
             return (PlaybackMethod.Transcode, "HdrNotSupported");

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-07-29
+
+### Added
+
+- HDR→SDR tonemap on Transcode (`forceHdrToSdr` / `HdrNotSupported`) via `zscale` + `tonemap`; admin setting `HdrToneMapMethod` (hable / mobius / reinhard / bt2390).
+- Playback `audioLayout` (stereo / 2.1 / 5.1 / mono) with `availableAudioLayouts` in decision response; ffmpeg `-ac` / `-channel_layout`.
+- ffprobe fills `MediaStream.Hdr` from color transfer / side data (HDR10, HDR10+, HLG, Dolby Vision).
+- `/health` and server-info report version `0.1.8`.
+
 ## [0.1.7] - 2026-07-29
 
 ### Fixed
@@ -104,7 +113,8 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.7...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.8...HEAD
+[0.1.8]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.8
 [0.1.7]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.7
 [0.1.6]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.6
 [0.1.5]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.5

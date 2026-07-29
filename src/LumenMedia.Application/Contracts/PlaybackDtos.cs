@@ -24,6 +24,17 @@ public sealed record PlaybackDecisionRequest
     public Guid? SubtitleStreamId { get; init; }
     public long ResumePositionMs { get; init; }
     public DeviceProfile Profile { get; init; } = new();
+    /// <summary>Force HDR→SDR tonemap even when the device profile advertises HDR support.</summary>
+    public bool ForceHdrToSdr { get; init; }
+    /// <summary>Target channel layout id (<c>stereo</c>, <c>2.1</c>, <c>5.1</c>, <c>mono</c>). Null = server default.</summary>
+    public string? AudioLayout { get; init; }
+}
+
+public sealed record AudioLayoutOption
+{
+    public required string Id { get; init; }
+    public required string Label { get; init; }
+    public int Channels { get; init; }
 }
 
 public sealed record QualityOption
@@ -80,6 +91,18 @@ public sealed record PlaybackDecisionResponse
 
     /// <summary>Debug reason (also mirrored via the X-Playback-Reason header).</summary>
     public string? Reason { get; init; }
+
+    /// <summary>Source video HDR label from probe (<c>HDR10</c>, <c>HLG</c>, …), if any.</summary>
+    public string? SourceHdr { get; init; }
+
+    /// <summary>True when the active session applies HDR→SDR tonemap.</summary>
+    public bool ToneMapActive { get; init; }
+
+    /// <summary>Channel layouts available for the selected audio track (no upmix).</summary>
+    public IReadOnlyList<AudioLayoutOption> AvailableAudioLayouts { get; init; } = [];
+
+    /// <summary>Effective audio layout id for this session.</summary>
+    public required string SelectedAudioLayout { get; init; }
 }
 
 public sealed record SetQualityRequest
@@ -89,6 +112,8 @@ public sealed record SetQualityRequest
     public long ResumePositionMs { get; init; }
     public Guid? AudioStreamId { get; init; }
     public Guid? SubtitleStreamId { get; init; }
+    public bool? ForceHdrToSdr { get; init; }
+    public string? AudioLayout { get; init; }
 }
 
 public sealed record SeekRequest

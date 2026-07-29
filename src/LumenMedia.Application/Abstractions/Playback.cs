@@ -24,6 +24,10 @@ public sealed class PlaybackSession
     public DeviceProfile Profile { get; set; } = new();
     /// <summary>Last PlaybackDecider reason (drives copy vs encode in ffmpeg).</summary>
     public string Reason { get; set; } = string.Empty;
+    /// <summary>Force HDR→SDR tonemap for this session.</summary>
+    public bool ForceHdrToSdr { get; set; }
+    /// <summary>Selected channel layout id (stereo, 2.1, 5.1, mono).</summary>
+    public string AudioLayout { get; set; } = "stereo";
     public DateTimeOffset CreatedAt { get; init; }
     public DateTimeOffset ExpiresAt { get; set; }
     /// <summary>Last playlist/segment/ping access — used for idle cleanup and throttle.</summary>
@@ -58,6 +62,10 @@ public sealed record TranscodeRequest
     /// ResolutionTooHigh does not re-encode full 4K when the client cannot Direct Play it.
     /// </summary>
     public int? MaxOutputHeight { get; init; }
+    /// <summary>Apply HDR→SDR tonemap filters.</summary>
+    public bool ToneMap { get; init; }
+    /// <summary>Target audio channel layout id for AAC encode.</summary>
+    public string AudioLayout { get; init; } = "stereo";
 }
 
 public interface ITranscoder

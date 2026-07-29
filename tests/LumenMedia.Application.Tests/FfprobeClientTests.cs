@@ -72,4 +72,97 @@ public class FfprobeClientTests
         stream.Title.Should().BeNull();
         stream.Language.Should().Be("eng");
     }
+
+    [Fact]
+    public void Parse_detects_hdr10_from_color_transfer()
+    {
+        const string json = """
+            {
+              "streams": [
+                {
+                  "index": 0, "codec_type": "video", "codec_name": "hevc",
+                  "width": 3840, "height": 2160,
+                  "color_transfer": "smpte2084",
+                  "color_primaries": "bt2020"
+                }
+              ]
+            }
+            """;
+
+        var video = FfprobeClient.ParseForTests(json).Streams.Single();
+        video.Hdr.Should().Be("HDR10");
+    }
+
+    [Fact]
+    public void Parse_detects_hlg()
+    {
+        const string json = """
+            {
+              "streams": [
+                {
+                  "index": 0, "codec_type": "video", "codec_name": "hevc",
+                  "color_transfer": "arib-std-b67"
+                }
+              ]
+            }
+            """;
+
+        FfprobeClient.ParseForTests(json).Streams.Single().Hdr.Should().Be("HLG");
+    }
+
+    [Fact]
+    public void Parse_detects_hdr10_plus_from_side_data()
+    {
+        const string json = """
+            {
+              "streams": [
+                {
+                  "index": 0, "codec_type": "video", "codec_name": "hevc",
+                  "color_transfer": "smpte2084",
+                  "side_data_list": [
+                    { "side_data_type": "HDR Dynamic Metadata SMPTE2094-40 (HDR10+)" }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        FfprobeClient.ParseForTests(json).Streams.Single().Hdr.Should().Be("HDR10+");
+    }
+
+    [Fact]
+    public void Parse_detects_dolby_vision_from_side_data()
+    {
+        const string json = """
+            {
+              "streams": [
+                {
+                  "index": 0, "codec_type": "video", "codec_name": "hevc",
+                  "side_data_list": [
+                    { "side_data_type": "DOVI configuration record" }
+                  ]
+                }
+              ]
+            }
+            """;
+
+        FfprobeClient.ParseForTests(json).Streams.Single().Hdr.Should().Be("DolbyVision");
+    }
+
+    [Fact]
+    public void Parse_leaves_sdr_hdr_null()
+    {
+        const string json = """
+            {
+              "streams": [
+                {
+                  "index": 0, "codec_type": "video", "codec_name": "h264",
+                  "color_transfer": "bt709"
+                }
+              ]
+            }
+            """;
+
+        FfprobeClient.ParseForTests(json).Streams.Single().Hdr.Should().BeNull();
+    }
 }

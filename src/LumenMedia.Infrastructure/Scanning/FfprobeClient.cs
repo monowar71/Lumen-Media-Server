@@ -142,6 +142,9 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
                     Channels = s.TryGetProperty("channels", out var ch) ? ch.GetInt32() : null,
                 };
 
+                if (kind == StreamKind.Video)
+                    stream.Hdr = DetectHdr(s, stream.Codec);
+
                 if (kind == StreamKind.Subtitle)
                     stream.SubtitleFormat = stream.Codec;
 
@@ -173,6 +176,67 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
 
     private static string? NullIfWhiteSpace(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    /// <summary>
+    /// Maps ffprobe color / side-data fields to a compact HDR label
+    /// (<c>HDR10</c>, <c>HDR10+</c>, <c>HLG</c>, <c>DolbyVision</c>).
+    /// </summary>
+    internal static string? DetectHdr(JsonElement stream, string? codec)
+    {
+        if (IsDolbyVisionCodec(codec) || HasDolbyVisionSideData(stream))
+            return "DolbyVision";
+
+        if (HasHdr10PlusSideData(stream))
+            return "HDR10+";
+
+        var transfer = stream.TryGetProperty("color_transfer", out var ct) ? ct.GetString() : null;
+        if (string.Equals(transfer, "smpte2084", StringComparison.OrdinalIgnoreCase))
+            return "HDR10";
+
+        if (string.Equals(transfer, "arib-std-b67", StringComparison.OrdinalIgnoreCase))
+            return "HLG";
+
+        // Some remuxes only expose Mastering Display Metadata without color_transfer.
+        if (HasMasteringDisplaySideData(stream))
+            return "HDR10";
+
+        return null;
+    }
+
+    private static bool IsDolbyVisionCodec(string? codec) =>
+        codec is not null
+        && (codec.Equals("dvhe", StringComparison.OrdinalIgnoreCase)
+            || codec.Equals("dvh1", StringComparison.OrdinalIgnoreCase)
+            || codec.Contains("dolby", StringComparison.OrdinalIgnoreCase));
+
+    private static bool HasDolbyVisionSideData(JsonElement stream) =>
+        SideDataContains(stream, "DOVI configuration record", "Dolby Vision");
+
+    private static bool HasHdr10PlusSideData(JsonElement stream) =>
+        SideDataContains(stream, "HDR10+", "HDR Dynamic Metadata");
+
+    private static bool HasMasteringDisplaySideData(JsonElement stream) =>
+        SideDataContains(stream, "Mastering display metadata", "Content light level metadata");
+
+    private static bool SideDataContains(JsonElement stream, params string[] needles)
+    {
+        if (!stream.TryGetProperty("side_data_list", out var list) || list.ValueKind != JsonValueKind.Array)
+            return false;
+
+        foreach (var item in list.EnumerateArray())
+        {
+            var sideType = item.TryGetProperty("side_data_type", out var t) ? t.GetString() : null;
+            if (string.IsNullOrEmpty(sideType))
+                continue;
+            foreach (var needle in needles)
+            {
+                if (sideType.Contains(needle, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
+    }
 
     private static bool IsDispositionFlagSet(JsonElement disposition, string name)
     {

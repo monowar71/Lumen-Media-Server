@@ -223,4 +223,53 @@ public class FfmpegArgumentBuilderTests
         args.Should().Contain("/media/show/S01E01.mkv");
         string.Join(' ', args).Should().NotContain("&&");
     }
+
+    [Fact]
+    public void Tone_map_adds_software_filter_and_skips_vaapi()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "vaapi", HdrToneMapMethod = "mobius" };
+        var request = Request(PlaybackMethod.Transcode, "720p", "HdrNotSupported") with
+        {
+            ToneMap = true,
+            SourceHeight = 1080,
+            SourceWidth = 1920,
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", opts);
+
+        args.Should().ContainInOrder("-c:v", "libx264");
+        args.Should().NotContain("h264_vaapi");
+        args.Should().NotContain("-hwaccel");
+        var vf = args[args.ToList().IndexOf("-vf") + 1];
+        vf.Should().Contain("tonemap=mobius");
+        vf.Should().Contain("scale=-2:720");
+        vf.Should().Contain("zscale=");
+    }
+
+    [Fact]
+    public void Audio_layout_5_1_sets_channels_and_bitrate()
+    {
+        var request = Request(PlaybackMethod.Transcode, "auto", "AudioDownmix") with
+        {
+            AudioLayout = "5.1",
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", new PlaybackOptions());
+
+        args.Should().ContainInOrder("-ac", "6");
+        args.Should().ContainInOrder("-channel_layout", "5.1");
+        args.Should().ContainInOrder("-b:a", "384k");
+    }
+
+    [Fact]
+    public void Audio_layout_2_1_sets_three_channels()
+    {
+        var request = Request(PlaybackMethod.Transcode, "auto", "AudioDownmix") with
+        {
+            AudioLayout = "2.1",
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", new PlaybackOptions());
+
+        args.Should().ContainInOrder("-ac", "3");
+        args.Should().ContainInOrder("-channel_layout", "2.1");
+        args.Should().ContainInOrder("-b:a", "192k");
+    }
 }

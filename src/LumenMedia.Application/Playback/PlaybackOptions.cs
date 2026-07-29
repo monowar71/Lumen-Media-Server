@@ -33,6 +33,12 @@ public sealed class PlaybackOptions
     public int IdleTimeoutSec { get; set; } = 120;
 
     /// <summary>
+    /// HDR→SDR tonemap algorithm for ffmpeg (<c>hable</c>, <c>mobius</c>, <c>reinhard</c>, <c>bt2390</c>).
+    /// Overridden at runtime by admin settings when present.
+    /// </summary>
+    public string HdrToneMapMethod { get; set; } = "hable";
+
+    /// <summary>
     /// Bitrate ladder from config. Keep the default empty: ASP.NET Core list binding
     /// <em>appends</em> config entries onto pre-populated defaults, which duplicated rungs.
     /// </summary>

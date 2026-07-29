@@ -2629,6 +2629,29 @@
           }
         }
       },
+      "AudioLayoutOption": {
+        "required": [
+          "id",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "channels": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          }
+        }
+      },
       "AudioStreamOption": {
         "required": [
           "id"
@@ -4370,6 +4393,15 @@
           },
           "profile": {
             "$ref": "#/components/schemas/DeviceProfile"
+          },
+          "forceHdrToSdr": {
+            "type": "boolean"
+          },
+          "audioLayout": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -4380,7 +4412,8 @@
           "mode",
           "streamUrl",
           "container",
-          "selectedQualityId"
+          "selectedQualityId",
+          "selectedAudioLayout"
         ],
         "type": "object",
         "properties": {
@@ -4446,6 +4479,24 @@
               "null",
               "string"
             ]
+          },
+          "sourceHdr": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "toneMapActive": {
+            "type": "boolean"
+          },
+          "availableAudioLayouts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AudioLayoutOption"
+            }
+          },
+          "selectedAudioLayout": {
+            "type": "string"
           }
         }
       },
@@ -4923,6 +4974,18 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "forceHdrToSdr": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "audioLayout": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5086,6 +5149,9 @@
               "string"
             ],
             "format": "int32"
+          },
+          "hdrToneMapMethod": {
+            "type": "string"
           }
         }
       },

@@ -18,6 +18,7 @@ namespace LumenMedia.Infrastructure.Transcoding;
 public sealed class FfmpegTranscoder(
     IOptions<PlaybackOptions> playbackOptions,
     IOptions<PathsOptions> pathsOptions,
+    ISettingsStore settingsStore,
     ILogger<FfmpegTranscoder> logger) : ITranscoder, IAsyncDisposable
 {
     private readonly ConcurrentDictionary<string, RunningSession> _sessions = new();
@@ -32,14 +33,16 @@ public sealed class FfmpegTranscoder(
         Directory.CreateDirectory(outputDir);
         WriteMasterPlaylist(outputDir, request.QualityId);
 
-        var args = FfmpegArgumentBuilder.Build(request, outputDir, playbackOptions.Value);
+        var opts = ResolvePlaybackOptions();
+        var args = FfmpegArgumentBuilder.Build(request, outputDir, opts);
         logger.LogInformation(
-            "ffmpeg start {SessionId} method={Method} quality={Quality} posMs={PosMs} hw={Hw}",
+            "ffmpeg start {SessionId} method={Method} quality={Quality} posMs={PosMs} hw={Hw} tonemap={ToneMap}",
             request.Session.SessionId,
             request.Session.Method,
             request.QualityId,
             request.StartPositionMs,
-            playbackOptions.Value.HardwareAccel);
+            opts.HardwareAccel,
+            request.ToneMap);
         logger.LogDebug(
             "ffmpeg argv {SessionId}: {Args}",
             request.Session.SessionId,
@@ -78,14 +81,45 @@ public sealed class FfmpegTranscoder(
             // Not supported on all platforms / permissions.
         }
 
-        var running = new RunningSession(process, outputDir, playbackOptions.Value);
+        var running = new RunningSession(process, outputDir, opts);
         _sessions[request.Session.SessionId] = running;
 
         _ = DrainAsync(process.StandardError, request.Session.SessionId, "stderr", running, running.Cts.Token);
         _ = DrainAsync(process.StandardOutput, request.Session.SessionId, "stdout", running, running.Cts.Token);
         _ = WatchExitAsync(request.Session.SessionId, running);
-        if (playbackOptions.Value.Throttle)
+        if (opts.Throttle)
             _ = ThrottleLoopAsync(request.Session.SessionId, running);
+    }
+
+    /// <summary>Merges live admin settings (tonemap method, etc.) onto config-bound options.</summary>
+    private PlaybackOptions ResolvePlaybackOptions()
+    {
+        var baseOpts = playbackOptions.Value;
+        var live = settingsStore.Get().Transcoding;
+        var method = string.IsNullOrWhiteSpace(live.HdrToneMapMethod)
+            ? baseOpts.HdrToneMapMethod
+            : live.HdrToneMapMethod;
+        if (string.Equals(method, baseOpts.HdrToneMapMethod, StringComparison.OrdinalIgnoreCase)
+            && string.IsNullOrWhiteSpace(live.HardwareAccel))
+            return baseOpts;
+
+        return new PlaybackOptions
+        {
+            HardwareAccel = string.IsNullOrWhiteSpace(live.HardwareAccel) ? baseOpts.HardwareAccel : live.HardwareAccel,
+            VaapiDevice = baseOpts.VaapiDevice,
+            MaxConcurrentSessions = live.MaxConcurrentSessions > 0 ? live.MaxConcurrentSessions : baseOpts.MaxConcurrentSessions,
+            SegmentDurationSec = live.SegmentDurationSec > 0 ? live.SegmentDurationSec : baseOpts.SegmentDurationSec,
+            InitialSegmentDurationSec = baseOpts.InitialSegmentDurationSec,
+            AbrEnabled = live.AbrEnabled,
+            DefaultRemoteCapKbps = live.DefaultRemoteCapKbps > 0 ? live.DefaultRemoteCapKbps : baseOpts.DefaultRemoteCapKbps,
+            Throttle = baseOpts.Throttle,
+            MaxAheadSegments = baseOpts.MaxAheadSegments,
+            IdleTimeoutSec = baseOpts.IdleTimeoutSec,
+            HdrToneMapMethod = method,
+            Ladder = live.Ladder.Count > 0
+                ? live.Ladder.Select(r => new LadderRung { Id = r.Id, Height = r.Height, VideoBitrateKbps = r.VideoBitrateKbps }).ToList()
+                : baseOpts.Ladder,
+        };
     }
 
     public Task StopAsync(string sessionId, CancellationToken ct)
@@ -378,6 +412,11 @@ public sealed class FfmpegTranscoder(
 /// <summary>Pure ffmpeg argv builder (array form) — unit-tested, no process I/O.</summary>
 public static class FfmpegArgumentBuilder
 {
+    private static readonly HashSet<string> ToneMapMethods = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "hable", "mobius", "reinhard", "bt2390",
+    };
+
     public static IReadOnlyList<string> Build(TranscodeRequest request, string outputDir, PlaybackOptions opts)
     {
         var method = request.Session.Method;
@@ -385,6 +424,9 @@ public static class FfmpegArgumentBuilder
         var rung = opts.EffectiveLadder.FirstOrDefault(r => r.Id == qualityId);
         var isOpenEndedQuality = qualityId.Equals("auto", StringComparison.OrdinalIgnoreCase)
                                  || qualityId.Equals("original", StringComparison.OrdinalIgnoreCase);
+        var toneMap = request.ToneMap
+                      || ContainsReason(request.Reason, "HdrNotSupported")
+                      || ContainsReason(request.Reason, "ForceHdrToSdr");
 
         // Audio-only remux (-c:v copy) follows source keyframes. BluRay-style ~10s GOPs
         // produce ~20–30 MB HLS segments that stall players (SegmentWait is short, ABR
@@ -392,14 +434,17 @@ public static class FfmpegArgumentBuilder
         var encodeVideo = method == PlaybackMethod.Transcode && (
             rung is not null
             || isOpenEndedQuality
+            || toneMap
             || ContainsReason(request.Reason, "VideoCodecNotSupported")
             || ContainsReason(request.Reason, "HdrNotSupported")
+            || ContainsReason(request.Reason, "ForceHdrToSdr")
             || ContainsReason(request.Reason, "ResolutionTooHigh")
             || ContainsReason(request.Reason, "BitrateTooHigh")
             || ContainsReason(request.Reason, "NoVideoStream")
             || ContainsReason(request.Reason, "SubtitleBurnIn")
             || ContainsReason(request.Reason, "ManualQuality")
-            || ContainsReason(request.Reason, "AudioCodecNotSupported"));
+            || ContainsReason(request.Reason, "AudioCodecNotSupported")
+            || ContainsReason(request.Reason, "AudioDownmix"));
 
         // Browser MSE is unreliable with AC3/EAC3 in fMP4; always AAC on Transcode.
         // DirectStream keeps audio copy (codecs already accepted by the profile).
@@ -417,14 +462,22 @@ public static class FfmpegArgumentBuilder
         var keyint = Math.Max(24, opts.SegmentDurationSec * 30);
 
         // Burn-in (bitmap overlay) stays on software encode — VAAPI + overlay is fragile.
+        // Tonemap also forces software: VAAPI VPP HDR→SDR is deferred.
         int? burnInIndex = request.SubtitleBurnInIndex is int idx && idx >= 0 ? idx : null;
         var burnIn = burnInIndex is not null;
-        if (burnIn)
+        if (burnIn || toneMap)
             encodeVideo = true;
 
         var useVaapi = encodeVideo
                        && !burnIn
+                       && !toneMap
                        && opts.HardwareAccel.Equals("vaapi", StringComparison.OrdinalIgnoreCase);
+
+        var layoutId = string.IsNullOrWhiteSpace(request.AudioLayout)
+            ? AudioLayouts.DefaultEncode
+            : request.AudioLayout;
+        if (!AudioLayouts.IsKnown(layoutId))
+            layoutId = AudioLayouts.DefaultEncode;
 
         var args = new List<string>
         {
@@ -465,11 +518,23 @@ public static class FfmpegArgumentBuilder
         args.Add("-i");
         args.Add(request.Session.SourcePath);
 
+        var toneMapMethod = NormalizeToneMapMethod(opts.HdrToneMapMethod);
+        var videoFilter = BuildSoftwareVideoFilter(toneMap, toneMapMethod, needsScale ? scaleHeight : null);
+
         if (burnInIndex is int burnIdx)
         {
-            // Bitmap overlay forces a video encode path below.
-            args.Add("-filter_complex");
-            args.Add($"[0:v:0][0:{burnIdx}]overlay[v]");
+            // Tonemap / scale (optional) then bitmap overlay — both software.
+            if (string.IsNullOrEmpty(videoFilter))
+            {
+                args.Add("-filter_complex");
+                args.Add($"[0:v:0][0:{burnIdx}]overlay[v]");
+            }
+            else
+            {
+                args.Add("-filter_complex");
+                args.Add($"[0:v:0]{videoFilter}[tm];[tm][0:{burnIdx}]overlay[v]");
+            }
+
             args.Add("-map");
             args.Add("[v]");
         }
@@ -493,7 +558,7 @@ public static class FfmpegArgumentBuilder
         if (encodeVideo)
         {
             var encoder = useVaapi ? "h264_vaapi" : SelectVideoEncoder(opts.HardwareAccel);
-            // Burn-in disables useVaapi above, but SelectVideoEncoder would still return
+            // Burn-in / tonemap disables useVaapi above, but SelectVideoEncoder would still return
             // h264_vaapi — which fails without an initialized hw device. Software fallback.
             if (!useVaapi && encoder == "h264_vaapi")
                 encoder = "libx264";
@@ -534,7 +599,13 @@ public static class FfmpegArgumentBuilder
 
                 args.Add("-pix_fmt");
                 args.Add("yuv420p");
-                if (needsScale && !burnIn)
+                // Burn-in already applied filters via filter_complex.
+                if (!burnIn && !string.IsNullOrEmpty(videoFilter))
+                {
+                    args.Add("-vf");
+                    args.Add(videoFilter);
+                }
+                else if (!burnIn && needsScale)
                 {
                     args.Add("-vf");
                     args.Add($"scale=-2:{scaleHeight}");
@@ -556,14 +627,25 @@ public static class FfmpegArgumentBuilder
 
         if (encodeAudio)
         {
+            var channels = AudioLayouts.ChannelCount(layoutId);
+            if (channels <= 0)
+                channels = 2;
+            var bitrate = AudioLayouts.AacBitrateKbps(layoutId);
             args.Add("-c:a");
             args.Add("aac");
             args.Add("-aac_coder");
             args.Add("fast");
             args.Add("-ac");
-            args.Add("2");
+            args.Add(channels.ToString(CultureInfo.InvariantCulture));
+            if (!layoutId.Equals(AudioLayouts.Stereo, StringComparison.OrdinalIgnoreCase)
+                && !layoutId.Equals(AudioLayouts.Mono, StringComparison.OrdinalIgnoreCase))
+            {
+                args.Add("-channel_layout");
+                args.Add(layoutId);
+            }
+
             args.Add("-b:a");
-            args.Add("128k");
+            args.Add($"{bitrate}k");
             // Flush packets promptly so hls.js can pull segments without long stalls.
             args.Add("-flush_packets");
             args.Add("1");
@@ -605,6 +687,36 @@ public static class FfmpegArgumentBuilder
         args.Add(Path.Combine(outputDir, "segment%d.m4s"));
         args.Add(Path.Combine(outputDir, "index.m3u8"));
         return args;
+    }
+
+    internal static string NormalizeToneMapMethod(string? method)
+    {
+        if (string.IsNullOrWhiteSpace(method) || !ToneMapMethods.Contains(method))
+            return "hable";
+        return method.ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Software HDR→SDR (+ optional scale) filter chain. Empty when neither is needed.
+    /// </summary>
+    internal static string BuildSoftwareVideoFilter(bool toneMap, string toneMapMethod, int? scaleHeight)
+    {
+        var parts = new List<string>();
+        if (toneMap)
+        {
+            // zscale linear → tonemap → bt709; jellyfin-ffmpeg includes zimg.
+            parts.Add("zscale=t=linear:npl=100");
+            parts.Add("format=gbrpf32le");
+            parts.Add("zscale=p=bt709");
+            parts.Add($"tonemap={toneMapMethod}:desat=0");
+            parts.Add("zscale=t=bt709:m=bt709:r=tv");
+            parts.Add("format=yuv420p");
+        }
+
+        if (scaleHeight is int h and > 0)
+            parts.Add($"scale=-2:{h}");
+
+        return string.Join(',', parts);
     }
 
     private static string SelectVideoEncoder(string hardwareAccel) =>
