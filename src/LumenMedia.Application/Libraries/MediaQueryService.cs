@@ -5,7 +5,7 @@ using LumenMedia.Domain.Media;
 
 namespace LumenMedia.Application.Libraries;
 
-public sealed class MediaQueryService(IUnitOfWork uow)
+public sealed class MediaQueryService(IUnitOfWork uow, IThemeSongStore themes)
 {
     public const int MaxPageSize = 200;
 
@@ -31,16 +31,17 @@ public sealed class MediaQueryService(IUnitOfWork uow)
             throw new NotFoundException("Item not found.");
 
         var progress = await uow.Progress.GetAsync(caller.UserId, item.Id, ct);
+        var hasTheme = themes.Exists(item.Id);
 
         return item switch
         {
-            Movie movie => MediaMapper.MapMovieDetail(movie, progress, caller.IsAdmin),
-            Series series => await MapSeriesAsync(series, caller.UserId, ct),
+            Movie movie => MediaMapper.MapMovieDetail(movie, progress, caller.IsAdmin, hasTheme),
+            Series series => await MapSeriesAsync(series, caller.UserId, hasTheme, ct),
             _ => throw new NotFoundException("Item not found."),
         };
     }
 
-    private async Task<SeriesDetail> MapSeriesAsync(Series series, Guid userId, CancellationToken ct)
+    private async Task<SeriesDetail> MapSeriesAsync(Series series, Guid userId, bool hasTheme, CancellationToken ct)
     {
         var seasons = await uow.Media.GetSeasonsAsync(series.Id, ct);
         var episodeCount = 0;
@@ -64,7 +65,7 @@ public sealed class MediaQueryService(IUnitOfWork uow)
             ? null
             : MediaMapper.MapEpisodeSummary(next.Episode, next.Progress);
 
-        return MediaMapper.MapSeriesDetail(series, seasons.Count, episodeCount, unwatched, nextUp);
+        return MediaMapper.MapSeriesDetail(series, seasons.Count, episodeCount, unwatched, nextUp, hasTheme);
     }
 
     public async Task<PagedResult<SeasonDto>> GetSeasonsAsync(Guid seriesId, Caller caller, CancellationToken ct)

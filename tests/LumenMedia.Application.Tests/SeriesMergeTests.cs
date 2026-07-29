@@ -60,6 +60,7 @@ public sealed class SeriesMergeTests
             language,
             TimeProvider.System,
             new ExternalHistoryPromoter(uow),
+            Substitute.For<IThemeSongService>(),
             NullLogger<MetadataEnricher>.Instance);
         return (sut, media, progress, artwork);
     }

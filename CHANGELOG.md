@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-07-29
+
+### Added
+
+- ThemerrDB theme songs: on metadata enrich, look up YouTube theme by TMDB id, download via yt-dlp to MP3 under `/config/metadata/{id}/theme.mp3`, expose `themeUrl` and `GET /api/v1/items/{id}/theme`.
+- Docker image ships yt-dlp + Deno (YouTube JS challenge runtime) for theme extraction.
+
+### Changed
+
+- `/health` and server-info report version `0.1.9`.
+
 ## [0.1.8] - 2026-07-29
 
 ### Added
@@ -113,7 +124,8 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.8...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.9...HEAD
+[0.1.9]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.9
 [0.1.8]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.8
 [0.1.7]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.7
 [0.1.6]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.6

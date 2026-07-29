@@ -113,6 +113,8 @@ public sealed record MovieDetail
     public IReadOnlyList<PersonDto> People { get; init; } = [];
     /// <summary>Remote trailer URL (usually YouTube), when the metadata provider has one.</summary>
     public string? TrailerUrl { get; init; }
+    /// <summary>Cached ambient theme audio path (<c>/api/v1/items/{id}/theme</c>) when available.</summary>
+    public string? ThemeUrl { get; init; }
     public ExternalIds ExternalIds { get; init; } = new();
     public bool MetadataLocked { get; init; }
     public ArtworkUrls Artwork { get; init; } = new();
@@ -145,6 +147,8 @@ public sealed record SeriesDetail
     public IReadOnlyList<PersonDto> People { get; init; } = [];
     /// <summary>Remote trailer URL (usually YouTube), when the metadata provider has one.</summary>
     public string? TrailerUrl { get; init; }
+    /// <summary>Cached ambient theme audio path (<c>/api/v1/items/{id}/theme</c>) when available.</summary>
+    public string? ThemeUrl { get; init; }
     public ExternalIds ExternalIds { get; init; } = new();
     public bool MetadataLocked { get; init; }
     public int SeasonCount { get; init; }

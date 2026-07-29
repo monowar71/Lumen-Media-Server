@@ -17,7 +17,8 @@ public sealed class MediaController(
     MediaQueryService media,
     MediaFileService files,
     IUnitOfWork uow,
-    IArtworkStore artwork) : ControllerBase
+    IArtworkStore artwork,
+    IThemeSongStore themes) : ControllerBase
 {
     [HttpGet("items/{id:guid}")]
     [ProducesResponseType(typeof(MovieDetail), StatusCodes.Status200OK)]
@@ -60,6 +61,33 @@ public sealed class MediaController(
             return NotFound();
 
         var result = await artwork.GetAsync(localPath, w, h, quality, ct);
+        if (result is null)
+            return NotFound();
+
+        var requestETag = Request.Headers.IfNoneMatch.ToString();
+        if (!string.IsNullOrEmpty(requestETag) && requestETag == result.ETag)
+        {
+            await result.Content.DisposeAsync();
+            return StatusCode(StatusCodes.Status304NotModified);
+        }
+
+        Response.Headers[HeaderNames.ETag] = result.ETag;
+        Response.Headers[HeaderNames.CacheControl] = "public, max-age=604800";
+        return File(result.Content, result.ContentType);
+    }
+
+    /// <summary>Cached ambient theme song (MP3) from ThemerrDB, when metadata enrich found one.</summary>
+    [HttpGet("items/{id:guid}/theme")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Theme(Guid id, CancellationToken ct)
+    {
+        var caller = User.ToCaller();
+        var item = await uow.Media.GetByIdAsync(id, ct);
+        if (item is null || !caller.CanAccess(item.LibraryId))
+            return NotFound();
+
+        var result = await themes.OpenAsync(id, ct);
         if (result is null)
             return NotFound();
 

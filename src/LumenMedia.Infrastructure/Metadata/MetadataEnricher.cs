@@ -93,6 +93,7 @@ public sealed class MetadataEnricher(
     IMetadataLanguageSource languageSource,
     TimeProvider clock,
     ExternalHistoryPromoter externalHistoryPromoter,
+    IThemeSongService themeSongs,
     ILogger<MetadataEnricher> logger) : IMetadataEnricher
 {
     public async Task<bool> EnrichAsync(Guid itemId, string? provider, string? providerId, CancellationToken ct)
@@ -150,6 +151,17 @@ public sealed class MetadataEnricher(
         if (!string.Equals(details.PosterUrl, details.BackdropUrl, StringComparison.Ordinal))
             await ApplyArtworkAsync(item, ArtworkKind.Backdrop, details.BackdropUrl, ct);
         await uow.SaveChangesAsync(ct);
+
+        // Ambient theme from ThemerrDB (optional; failures do not fail enrich).
+        try
+        {
+            await themeSongs.SyncFromThemerrAsync(item, ct);
+            await uow.SaveChangesAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            logger.LogWarning(ex, "Theme song sync failed for {ItemId}", item.Id);
+        }
 
         if (item is Series)
             await MergeDuplicateSeriesAsync(item.Id, ct);

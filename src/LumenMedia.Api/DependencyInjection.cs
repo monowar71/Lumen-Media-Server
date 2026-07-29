@@ -176,6 +176,7 @@ public static class DependencyInjection
         var value = path.Value ?? string.Empty;
         return value.Contains("/download", StringComparison.OrdinalIgnoreCase)
             || value.Contains("/subtitles/", StringComparison.OrdinalIgnoreCase)
-            || value.Contains("/artwork/", StringComparison.OrdinalIgnoreCase);
+            || value.Contains("/artwork/", StringComparison.OrdinalIgnoreCase)
+            || value.EndsWith("/theme", StringComparison.OrdinalIgnoreCase);
     }
 }

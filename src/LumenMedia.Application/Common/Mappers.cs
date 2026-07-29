@@ -92,7 +92,11 @@ public static class MediaMapper
         Streams = src.Streams.OrderBy(s => s.StreamIndex).Select(MapStream).ToList(),
     };
 
-    public static MovieDetail MapMovieDetail(Movie movie, PlaybackProgress? progress, bool includePath) => new()
+    public static MovieDetail MapMovieDetail(
+        Movie movie,
+        PlaybackProgress? progress,
+        bool includePath,
+        bool hasTheme = false) => new()
     {
         Id = movie.Id,
         Title = movie.Title,
@@ -108,6 +112,7 @@ public static class MediaMapper
         Genres = movie.Genres.Select(g => g.Name).ToList(),
         People = MapPeople(movie),
         TrailerUrl = movie.TrailerUrl,
+        ThemeUrl = hasTheme ? ArtworkUrlBuilder.ItemTheme(movie.Id) : null,
         ExternalIds = new ExternalIds { Tmdb = movie.TmdbId, Tvdb = movie.TvdbId, Imdb = movie.ImdbId },
         MetadataLocked = movie.MetadataLocked,
         Artwork = ItemArtwork(movie),
@@ -123,7 +128,8 @@ public static class MediaMapper
         int seasonCount,
         int episodeCount,
         int unwatched,
-        EpisodeSummary? nextUp = null) => new()
+        EpisodeSummary? nextUp = null,
+        bool hasTheme = false) => new()
     {
         Id = series.Id,
         Title = series.Title,
@@ -137,6 +143,7 @@ public static class MediaMapper
         Genres = series.Genres.Select(g => g.Name).ToList(),
         People = MapPeople(series),
         TrailerUrl = series.TrailerUrl,
+        ThemeUrl = hasTheme ? ArtworkUrlBuilder.ItemTheme(series.Id) : null,
         ExternalIds = new ExternalIds { Tmdb = series.TmdbId, Tvdb = series.TvdbId, Imdb = series.ImdbId },
         MetadataLocked = series.MetadataLocked,
         SeasonCount = seasonCount,

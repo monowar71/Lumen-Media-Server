@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://127.0.0.1:15080/"
+      "url": "http://127.0.0.1:5099/"
     }
   ],
   "paths": {
@@ -1520,6 +1520,16 @@
               "schema": {
                 "$ref": "#/components/schemas/SetItemArtworkRequest"
               }
+            },
+            "text/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetItemArtworkRequest"
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetItemArtworkRequest"
+              }
             }
           },
           "required": true
@@ -1531,10 +1541,10 @@
         }
       }
     },
-    "/api/v1/items/{id}/artwork-candidates": {
+    "/api/v1/items/{id}/theme": {
       "get": {
         "tags": [
-          "Metadata"
+          "Media"
         ],
         "parameters": [
           {
@@ -1545,13 +1555,48 @@
               "type": "string",
               "format": "uuid"
             }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
           },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{id}/file": {
+      "delete": {
+        "tags": [
+          "Media"
+        ],
+        "parameters": [
           {
-            "name": "kind",
-            "in": "query",
+            "name": "id",
+            "in": "path",
+            "required": true,
             "schema": {
-              "$ref": "#/components/schemas/ArtworkKind",
-              "default": "Poster"
+              "type": "string",
+              "format": "uuid"
             }
           }
         ],
@@ -1559,12 +1604,39 @@
           "200": {
             "description": "OK",
             "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteMediaFileResponse"
+                }
+              },
               "application/json": {
                 "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ArtworkCandidateDto"
-                  }
+                  "$ref": "#/components/schemas/DeleteMediaFileResponse"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteMediaFileResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
                 }
               }
             }
@@ -1632,6 +1704,63 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/MetadataMatchCandidateDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/items/{id}/artwork-candidates": {
+      "get": {
+        "tags": [
+          "Metadata"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "default": 0,
+              "$ref": "#/components/schemas/ArtworkKind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArtworkCandidateDto"
+                  }
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArtworkCandidateDto"
+                  }
+                }
+              },
+              "text/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ArtworkCandidateDto"
                   }
                 }
               }
@@ -2217,7 +2346,6 @@
         "tags": [
           "Stream"
         ],
-        "summary": "HLS master playlist. Auth: unguessable sessionId (capability URL); JWT optional.",
         "parameters": [
           {
             "name": "sessionId",
@@ -2232,8 +2360,7 @@
           "200": {
             "description": "OK"
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/v1/stream/{sessionId}/index.m3u8": {
@@ -2241,7 +2368,6 @@
         "tags": [
           "Stream"
         ],
-        "summary": "HLS media playlist. Auth: unguessable sessionId (capability URL); JWT optional.",
         "parameters": [
           {
             "name": "sessionId",
@@ -2256,8 +2382,7 @@
           "200": {
             "description": "OK"
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/v1/stream/{sessionId}/source": {
@@ -2265,7 +2390,6 @@
         "tags": [
           "Stream"
         ],
-        "summary": "DirectPlay media for a playback session. Auth: unguessable sessionId (capability URL); JWT optional.",
         "parameters": [
           {
             "name": "sessionId",
@@ -2279,12 +2403,8 @@
         "responses": {
           "200": {
             "description": "OK"
-          },
-          "206": {
-            "description": "Partial Content"
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/v1/stream/{sessionId}/{segment}": {
@@ -2292,7 +2412,6 @@
         "tags": [
           "Stream"
         ],
-        "summary": "HLS segment. Auth: unguessable sessionId (capability URL); JWT optional.",
         "parameters": [
           {
             "name": "sessionId",
@@ -2315,8 +2434,7 @@
           "200": {
             "description": "OK"
           }
-        },
-        "security": []
+        }
       }
     },
     "/api/v1/items/{id}/download": {
@@ -2346,40 +2464,6 @@
         "responses": {
           "200": {
             "description": "OK"
-          }
-        }
-      }
-    },
-    "/api/v1/items/{id}/file": {
-      "delete": {
-        "tags": [
-          "Media"
-        ],
-        "summary": "Delete on-disk video file(s) for a movie or episode (admin).",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeleteMediaFileResponse"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Not Found"
           }
         }
       }
@@ -2584,6 +2668,62 @@
   },
   "components": {
     "schemas": {
+      "ArtworkCandidateDto": {
+        "required": [
+          "provider",
+          "kind",
+          "url",
+          "thumbnailUrl"
+        ],
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "thumbnailUrl": {
+            "type": "string"
+          },
+          "language": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "width": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "height": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "null",
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "voteAverage": {
+            "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
+            "type": [
+              "null",
+              "number",
+              "string"
+            ],
+            "format": "double"
+          }
+        }
+      },
       "ArtworkKind": {
         "enum": [
           "Poster",
@@ -2672,8 +2812,7 @@
             "type": [
               "null",
               "string"
-            ],
-            "description": "Container track title — often the dubbing studio (LostFilm, MovieDalen, …)."
+            ]
           },
           "codec": {
             "type": [
@@ -2705,30 +2844,6 @@
               "string"
             ],
             "format": "int32"
-          }
-        }
-      },
-      "DeleteMediaFileResponse": {
-        "type": "object",
-        "properties": {
-          "deletedFiles": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "sourcesRemoved": {
-            "pattern": "^-?(?:0|[1-9]\\d*)$",
-            "type": [
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "mediaRemoved": {
-            "type": "boolean"
           }
         }
       },
@@ -2797,6 +2912,30 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "DeleteMediaFileResponse": {
+        "type": "object",
+        "properties": {
+          "deletedFiles": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "sourcesRemoved": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "mediaRemoved": {
+            "type": "boolean"
           }
         }
       },
@@ -3070,8 +3209,7 @@
               "null",
               "string"
             ],
-            "format": "uuid",
-            "description": "Local media/episode id when matched; null for unmatched external rows."
+            "format": "uuid"
           },
           "kind": {
             "$ref": "#/components/schemas/MediaKind"
@@ -3147,15 +3285,13 @@
             "format": "date-time"
           },
           "isExternal": {
-            "type": "boolean",
-            "description": "True when the row came from an external import and is not in the local library."
+            "type": "boolean"
           },
           "externalKey": {
             "type": [
               "null",
               "string"
-            ],
-            "description": "Stable key for unmatched external rows."
+            ]
           }
         }
       },
@@ -3209,8 +3345,8 @@
           "status": {
             "$ref": "#/components/schemas/ImportStatus"
           },
-          "parsed": {},
-          "candidates": {},
+          "parsed": { },
+          "candidates": { },
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -3823,70 +3959,6 @@
               "null",
               "string"
             ]
-          }
-        }
-      },
-      "ArtworkCandidateDto": {
-        "required": [
-          "provider",
-          "kind",
-          "url",
-          "thumbnailUrl"
-        ],
-        "type": "object",
-        "properties": {
-          "provider": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string"
-          },
-          "url": {
-            "type": "string"
-          },
-          "thumbnailUrl": {
-            "type": "string"
-          },
-          "language": {
-            "type": [
-              "null",
-              "string"
-            ]
-          },
-          "width": {
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "height": {
-            "type": [
-              "null",
-              "integer",
-              "string"
-            ],
-            "format": "int32"
-          },
-          "voteAverage": {
-            "type": [
-              "null",
-              "number",
-              "string"
-            ],
-            "format": "double"
-          }
-        }
-      },
-      "SetItemArtworkRequest": {
-        "required": [
-          "url"
-        ],
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string"
           }
         }
       },
@@ -4835,6 +4907,12 @@
               "string"
             ]
           },
+          "themeUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "externalIds": {
             "$ref": "#/components/schemas/ExternalIds"
           },
@@ -4938,6 +5016,17 @@
           },
           "import": {
             "$ref": "#/components/schemas/ImportSettingsDto"
+          }
+        }
+      },
+      "SetItemArtworkRequest": {
+        "required": [
+          "url"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
           }
         }
       },
@@ -5055,8 +5144,7 @@
             "type": [
               "null",
               "string"
-            ],
-            "description": "Container track title (e.g. \"Russian (Forced)\", \"English (SDH)\")."
+            ]
           },
           "format": {
             "type": [
@@ -5387,7 +5475,7 @@
           "role": {
             "$ref": "#/components/schemas/UserRole"
           },
-          "libraryAccess": {},
+          "libraryAccess": { },
           "allowTranscoding": {
             "type": "boolean"
           },

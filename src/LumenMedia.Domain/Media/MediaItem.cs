@@ -42,6 +42,11 @@ public abstract class MediaItem
     public string? ImdbId { get; protected set; }
     /// <summary>Remote trailer URL (usually YouTube) from the metadata provider.</summary>
     public string? TrailerUrl { get; protected set; }
+    /// <summary>
+    /// YouTube theme URL from ThemerrDB that was successfully cached under
+    /// <c>/config/metadata/{id}/theme.mp3</c>. Null when no theme is cached.
+    /// </summary>
+    public string? ThemeYoutubeUrl { get; protected set; }
     public bool MetadataLocked { get; protected set; }
     public DateTimeOffset AddedAt { get; protected set; }
     public DateTimeOffset UpdatedAt { get; protected set; }
@@ -77,6 +82,8 @@ public abstract class MediaItem
     }
 
     public void SetTrailerUrl(string? url) => TrailerUrl = url;
+
+    public void SetThemeYoutubeUrl(string? url) => ThemeYoutubeUrl = url;
 
     /// <summary>
     /// When locked, automatic metadata refresh skips this item; explicit match still applies.

@@ -11,7 +11,7 @@
 ## Features
 
 - **Libraries** — scan movies / series from folders; auto-scan with debounce + reconcile
-- **Metadata** — TMDB / TVDB enrichment, artwork, cast, trailers, manual match & edit
+- **Metadata** — TMDB / TVDB enrichment, artwork, cast, trailers, ThemerrDB theme songs, manual match & edit
 - **Playback** — direct play or ffmpeg HLS (HW accel, VAAPI); ABR-friendly segments
 - **Progress & history** — resume points, watch history, optional Plex history import
 - **Import pipeline** — watch a downloads folder (hardlink / copy strategies)

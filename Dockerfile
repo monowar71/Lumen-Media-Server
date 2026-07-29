@@ -17,11 +17,28 @@ WORKDIR /app
 # ffmpeg + Intel VAAPI user-space driver (iHD, amd64 only). Host still needs /dev/dri + i915.
 # non-free iHD package is required for Alder Lake-N / newer Intel GPUs; not available on arm64.
 ARG TARGETARCH
+# yt-dlp YouTube extraction needs a supported JS runtime (Deno >= 2.3; apt nodejs is too old).
+ARG DENO_VERSION=2.4.3
 RUN apt-get update \
     && ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" \
     && apt-get install -y --no-install-recommends \
-        ffmpeg curl vainfo \
+        ffmpeg curl unzip vainfo ca-certificates python3 \
         $( [ "$ARCH" = "amd64" ] && echo intel-media-va-driver-non-free || true ) \
+    && curl -fsSL -o /usr/local/bin/yt-dlp \
+        https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp \
+    && chmod a+rx /usr/local/bin/yt-dlp \
+    && case "$ARCH" in \
+         amd64) DENO_ARCH=x86_64 ;; \
+         arm64) DENO_ARCH=aarch64 ;; \
+         *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
+       esac \
+    && curl -fsSL -o /tmp/deno.zip \
+        "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${DENO_ARCH}-unknown-linux-gnu.zip" \
+    && unzip -o /tmp/deno.zip -d /usr/local/bin \
+    && chmod a+rx /usr/local/bin/deno \
+    && rm -f /tmp/deno.zip \
+    && yt-dlp --version \
+    && deno --version \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app ./

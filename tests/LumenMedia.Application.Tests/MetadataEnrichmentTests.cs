@@ -54,6 +54,7 @@ public sealed class MetadataEnrichmentTests
             language,
             TimeProvider.System,
             new ExternalHistoryPromoter(uow),
+            Substitute.For<IThemeSongService>(),
             NullLogger<MetadataEnricher>.Instance);
         return (sut, media, provider);
     }
@@ -212,5 +213,46 @@ public sealed class MetadataEnrichmentTests
         TmdbMetadataProvider.PickTrailerUrl(
             [new TmdbMetadataProvider.TmdbVideo("Vimeo", "Trailer", "v1", true)])
             .Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Enrich_syncs_theme_song_after_details()
+    {
+        var movie = new Movie(Guid.CreateVersion7(), "Matrix", DateTimeOffset.UtcNow);
+        var themes = Substitute.For<IThemeSongService>();
+        var media = Substitute.For<IMediaRepository>();
+        media.GetTrackedForMetadataAsync(movie.Id, Arg.Any<CancellationToken>()).Returns(movie);
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Media.Returns(media);
+        uow.Libraries.Returns(Substitute.For<ILibraryRepository>());
+        uow.ExternalHistory.Returns(Substitute.For<IExternalHistoryRepository>());
+        uow.Progress.Returns(Substitute.For<IProgressRepository>());
+        uow.ExternalHistory.FindByDedupeKeysAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns([]);
+
+        var provider = Substitute.For<IMetadataProvider>();
+        provider.Name.Returns("Tmdb");
+        provider.IsConfigured.Returns(true);
+        provider.GetDetailsAsync("603", movie.Kind, Arg.Any<MetadataLanguage>(), Arg.Any<CancellationToken>())
+            .Returns(Details(trailerUrl: null));
+
+        var language = Substitute.For<IMetadataLanguageSource>();
+        language.Get().Returns(new MetadataLanguage("ru-RU", "en-US"));
+
+        var sut = new MetadataEnricher(
+            uow,
+            [provider],
+            Substitute.For<IArtworkStore>(),
+            Substitute.For<IRemoteImageFetcher>(),
+            language,
+            TimeProvider.System,
+            new ExternalHistoryPromoter(uow),
+            themes,
+            NullLogger<MetadataEnricher>.Instance);
+
+        await sut.EnrichAsync(movie.Id, "Tmdb", "603", default);
+
+        await themes.Received(1).SyncFromThemerrAsync(movie, Arg.Any<CancellationToken>());
     }
 }

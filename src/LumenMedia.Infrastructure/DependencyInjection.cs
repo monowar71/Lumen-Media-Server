@@ -48,6 +48,9 @@ public static class DependencyInjection
         services.AddSingleton<INameParser, RegexNameParser>();
         services.AddSingleton<FfprobeClient>();
         services.AddSingleton<IArtworkStore, LocalArtworkStore>();
+        services.AddSingleton<IThemeSongStore, LocalThemeSongStore>();
+        services.AddSingleton<IThemerrDbClient, ThemerrDbClient>();
+        services.AddSingleton<IThemeSongService, ThemeSongService>();
         services.AddSingleton<IPlaybackSessionStore, InMemoryPlaybackSessionStore>();
         services.AddSingleton<ITranscoder, FfmpegTranscoder>();
         services.AddSingleton<ISubtitleConverter, FfmpegSubtitleConverter>();
@@ -85,6 +88,12 @@ public static class DependencyInjection
         services.AddHttpClient("Tvdb", client =>
         {
             client.BaseAddress = new Uri("https://api4.thetvdb.com/v4/");
+            client.Timeout = TimeSpan.FromSeconds(30);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("LumenMedia/0.1");
+        });
+        services.AddHttpClient("ThemerrDb", client =>
+        {
+            client.BaseAddress = new Uri("https://app.lizardbyte.dev/ThemerrDB/");
             client.Timeout = TimeSpan.FromSeconds(30);
             client.DefaultRequestHeaders.UserAgent.ParseAdd("LumenMedia/0.1");
         });
