@@ -112,6 +112,10 @@ public sealed record SetQualityRequest
     public long ResumePositionMs { get; init; }
     public Guid? AudioStreamId { get; init; }
     public Guid? SubtitleStreamId { get; init; }
+    /// <summary>
+    /// <c>null</c> keeps the session flag; <c>true</c>/<c>false</c> sets it explicitly.
+    /// Omit on quality/audio-only changes so HDR→SDR is not cleared accidentally.
+    /// </summary>
     public bool? ForceHdrToSdr { get; init; }
     public string? AudioLayout { get; init; }
 }

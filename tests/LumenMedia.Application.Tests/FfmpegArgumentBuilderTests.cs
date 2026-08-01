@@ -151,19 +151,26 @@ public class FfmpegArgumentBuilderTests
     }
 
     [Fact]
-    public void Vaapi_burn_in_falls_back_to_software()
+    public void Vaapi_burn_in_uses_overlay_vaapi()
     {
         var opts = new PlaybackOptions { HardwareAccel = "vaapi" };
         var request = Request(PlaybackMethod.Transcode, "720p", "SubtitleBurnIn") with
         {
             SubtitleBurnInIndex = 3,
+            SourceHeight = 1080,
+            SourceWidth = 1920,
         };
         var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", opts);
 
-        args.Should().ContainInOrder("-c:v", "libx264");
-        args.Should().NotContain("h264_vaapi");
-        args.Should().NotContain("-init_hw_device");
-        args.Should().NotContain("-hwaccel");
+        args.Should().ContainInOrder("-c:v", "h264_vaapi");
+        args.Should().ContainInOrder("-hwaccel", "vaapi");
+        args.Should().Contain("-filter_complex");
+        var fc = args[args.ToList().IndexOf("-filter_complex") + 1];
+        fc.Should().Contain("overlay_vaapi=w=main_w:h=main_h");
+        fc.Should().Contain("[0:3]format=bgra,hwupload[sub]");
+        fc.Should().Contain("scale_vaapi=-2:720:format=nv12");
+        args.Should().NotContain("-vf");
+        args.Should().NotContain("libx264");
     }
 
     [Fact]
@@ -225,9 +232,32 @@ public class FfmpegArgumentBuilderTests
     }
 
     [Fact]
-    public void Tone_map_adds_software_filter_and_skips_vaapi()
+    public void Tone_map_with_vaapi_uses_tonemap_vaapi()
     {
         var opts = new PlaybackOptions { HardwareAccel = "vaapi", HdrToneMapMethod = "mobius" };
+        var request = Request(PlaybackMethod.Transcode, "720p", "HdrNotSupported") with
+        {
+            ToneMap = true,
+            SourceHeight = 1080,
+            SourceWidth = 1920,
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", opts);
+
+        args.Should().ContainInOrder("-c:v", "h264_vaapi");
+        args.Should().ContainInOrder("-hwaccel", "vaapi");
+        args.Should().ContainInOrder("-hwaccel_output_format", "vaapi");
+        var vf = args[args.ToList().IndexOf("-vf") + 1];
+        vf.Should().Contain("tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709");
+        vf.Should().Contain("scale_vaapi=w=-2:h=720");
+        // Admin method applies only to the software fallback path.
+        vf.Should().NotContain("tonemap=mobius");
+        args.Should().NotContain("libx264");
+    }
+
+    [Fact]
+    public void Tone_map_without_vaapi_uses_software_filter_and_scales_in_zscale()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "none", HdrToneMapMethod = "mobius" };
         var request = Request(PlaybackMethod.Transcode, "720p", "HdrNotSupported") with
         {
             ToneMap = true,
@@ -241,8 +271,47 @@ public class FfmpegArgumentBuilderTests
         args.Should().NotContain("-hwaccel");
         var vf = args[args.ToList().IndexOf("-vf") + 1];
         vf.Should().Contain("tonemap=mobius");
-        vf.Should().Contain("scale=-2:720");
-        vf.Should().Contain("zscale=");
+        vf.Should().Contain("zscale=w=-2:h=720:t=linear:npl=100");
+        vf.Should().NotContain("scale=-2:720");
+    }
+
+    [Fact]
+    public void Tone_map_with_burn_in_stays_on_vaapi()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "vaapi" };
+        var request = Request(PlaybackMethod.Transcode, "720p", "ForceHdrToSdr") with
+        {
+            ToneMap = true,
+            SubtitleBurnInIndex = 3,
+            SourceHeight = 1080,
+            SourceWidth = 1920,
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", opts);
+
+        args.Should().ContainInOrder("-c:v", "h264_vaapi");
+        var fc = args[args.ToList().IndexOf("-filter_complex") + 1];
+        fc.Should().Contain("tonemap_vaapi=");
+        fc.Should().Contain("overlay_vaapi=");
+        fc.Should().NotContain("tonemap=hable");
+        args.Should().NotContain("libx264");
+    }
+
+    [Fact]
+    public void Burn_in_without_vaapi_uses_software_overlay()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "none" };
+        var request = Request(PlaybackMethod.Transcode, "720p", "SubtitleBurnIn") with
+        {
+            SubtitleBurnInIndex = 3,
+            SourceHeight = 1080,
+            SourceWidth = 1920,
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", opts);
+
+        args.Should().ContainInOrder("-c:v", "libx264");
+        var fc = args[args.ToList().IndexOf("-filter_complex") + 1];
+        fc.Should().Contain("[0:3]overlay[v]");
+        fc.Should().NotContain("overlay_vaapi");
     }
 
     [Fact]

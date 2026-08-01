@@ -461,16 +461,14 @@ public static class FfmpegArgumentBuilder
         var videoBitrateKbps = ResolveVideoBitrateKbps(rung, scaleHeight, opts);
         var keyint = Math.Max(24, opts.SegmentDurationSec * 30);
 
-        // Burn-in (bitmap overlay) stays on software encode — VAAPI + overlay is fragile.
-        // Tonemap also forces software: VAAPI VPP HDR→SDR is deferred.
+        // VAAPI path: decode + scale/tonemap_vaapi + optional overlay_vaapi (bitmap burn-in) + encode.
+        // Software fallback when HardwareAccel is not vaapi (zscale/tonemap + overlay).
         int? burnInIndex = request.SubtitleBurnInIndex is int idx && idx >= 0 ? idx : null;
         var burnIn = burnInIndex is not null;
         if (burnIn || toneMap)
             encodeVideo = true;
 
         var useVaapi = encodeVideo
-                       && !burnIn
-                       && !toneMap
                        && opts.HardwareAccel.Equals("vaapi", StringComparison.OrdinalIgnoreCase);
 
         var layoutId = string.IsNullOrWhiteSpace(request.AudioLayout)
@@ -519,22 +517,15 @@ public static class FfmpegArgumentBuilder
         args.Add(request.Session.SourcePath);
 
         var toneMapMethod = NormalizeToneMapMethod(opts.HdrToneMapMethod);
-        var videoFilter = BuildSoftwareVideoFilter(toneMap, toneMapMethod, needsScale ? scaleHeight : null);
+        var softwareFilter = BuildSoftwareVideoFilter(toneMap, toneMapMethod, needsScale ? scaleHeight : null);
+        var vaapiFilter = BuildVaapiVideoFilter(toneMap, needsScale ? scaleHeight : null);
 
         if (burnInIndex is int burnIdx)
         {
-            // Tonemap / scale (optional) then bitmap overlay — both software.
-            if (string.IsNullOrEmpty(videoFilter))
-            {
-                args.Add("-filter_complex");
-                args.Add($"[0:v:0][0:{burnIdx}]overlay[v]");
-            }
-            else
-            {
-                args.Add("-filter_complex");
-                args.Add($"[0:v:0]{videoFilter}[tm];[tm][0:{burnIdx}]overlay[v]");
-            }
-
+            args.Add("-filter_complex");
+            args.Add(useVaapi
+                ? BuildVaapiBurnInFilterComplex(vaapiFilter, burnIdx)
+                : BuildSoftwareBurnInFilterComplex(softwareFilter, burnIdx));
             args.Add("-map");
             args.Add("[v]");
         }
@@ -558,8 +549,8 @@ public static class FfmpegArgumentBuilder
         if (encodeVideo)
         {
             var encoder = useVaapi ? "h264_vaapi" : SelectVideoEncoder(opts.HardwareAccel);
-            // Burn-in / tonemap disables useVaapi above, but SelectVideoEncoder would still return
-            // h264_vaapi — which fails without an initialized hw device. Software fallback.
+            // SelectVideoEncoder returns h264_vaapi for vaapi accel even when we fell back —
+            // that encoder needs an initialized hw device.
             if (!useVaapi && encoder == "h264_vaapi")
                 encoder = "libx264";
             args.Add("-c:v");
@@ -573,13 +564,13 @@ public static class FfmpegArgumentBuilder
 
             if (useVaapi)
             {
-                // Frames already on a VAAPI surface from hwaccel decode. Stay on-GPU:
-                // scale_vaapi (optional) + format=nv12 for h264_vaapi. No hwupload round-trip.
-                var vf = needsScale
-                    ? $"scale_vaapi=-2:{scaleHeight}:format=nv12"
-                    : "scale_vaapi=format=nv12";
-                args.Add("-vf");
-                args.Add(vf);
+                // Burn-in already applied filters via filter_complex; otherwise stay on-GPU with -vf.
+                if (!burnIn)
+                {
+                    args.Add("-vf");
+                    args.Add(vaapiFilter);
+                }
+
                 args.Add("-b:v");
                 args.Add($"{videoBitrateKbps}k");
                 args.Add("-maxrate");
@@ -600,10 +591,10 @@ public static class FfmpegArgumentBuilder
                 args.Add("-pix_fmt");
                 args.Add("yuv420p");
                 // Burn-in already applied filters via filter_complex.
-                if (!burnIn && !string.IsNullOrEmpty(videoFilter))
+                if (!burnIn && !string.IsNullOrEmpty(softwareFilter))
                 {
                     args.Add("-vf");
-                    args.Add(videoFilter);
+                    args.Add(softwareFilter);
                 }
                 else if (!burnIn && needsScale)
                 {
@@ -697,7 +688,52 @@ public static class FfmpegArgumentBuilder
     }
 
     /// <summary>
+    /// On-GPU VAAPI filter: optional downscale, optional HDR→SDR via <c>tonemap_vaapi</c>, nv12 out.
+    /// </summary>
+    internal static string BuildVaapiVideoFilter(bool toneMap, int? scaleHeight)
+    {
+        var parts = new List<string>();
+        // Scale before tonemap so VPP works at the output resolution.
+        if (scaleHeight is int h and > 0)
+        {
+            parts.Add(toneMap
+                ? $"scale_vaapi=w=-2:h={h.ToString(CultureInfo.InvariantCulture)}"
+                : $"scale_vaapi=-2:{h.ToString(CultureInfo.InvariantCulture)}:format=nv12");
+        }
+        else if (!toneMap)
+        {
+            parts.Add("scale_vaapi=format=nv12");
+        }
+
+        if (toneMap)
+            parts.Add("tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709");
+
+        return string.Join(',', parts);
+    }
+
+    /// <summary>
+    /// Bitmap subtitle burn-in on VAAPI: base chain → upload PGS/VobSub as BGRA → <c>overlay_vaapi</c>.
+    /// Overlay is scaled to the main frame so 4K subs on a 1080p base do not fail VPP.
+    /// </summary>
+    internal static string BuildVaapiBurnInFilterComplex(string vaapiBaseFilter, int burnInStreamIndex)
+    {
+        var basePart = string.IsNullOrEmpty(vaapiBaseFilter) ? "" : vaapiBaseFilter;
+        return $"[0:v:0]{basePart}[base];[0:{burnInStreamIndex.ToString(CultureInfo.InvariantCulture)}]format=bgra,hwupload[sub];[base][sub]overlay_vaapi=w=main_w:h=main_h[v]";
+    }
+
+    /// <summary>Software burn-in: optional scale/tonemap then <c>overlay</c>.</summary>
+    internal static string BuildSoftwareBurnInFilterComplex(string softwareFilter, int burnInStreamIndex)
+    {
+        var idx = burnInStreamIndex.ToString(CultureInfo.InvariantCulture);
+        if (string.IsNullOrEmpty(softwareFilter))
+            return $"[0:v:0][0:{idx}]overlay[v]";
+        return $"[0:v:0]{softwareFilter}[tm];[tm][0:{idx}]overlay[v]";
+    }
+
+    /// <summary>
     /// Software HDR→SDR (+ optional scale) filter chain. Empty when neither is needed.
+    /// Used when VAAPI is unavailable. Scales inside the first zscale so float tonemap
+    /// does not run at full 4K.
     /// </summary>
     internal static string BuildSoftwareVideoFilter(bool toneMap, string toneMapMethod, int? scaleHeight)
     {
@@ -705,16 +741,19 @@ public static class FfmpegArgumentBuilder
         if (toneMap)
         {
             // zscale linear → tonemap → bt709; jellyfin-ffmpeg includes zimg.
-            parts.Add("zscale=t=linear:npl=100");
+            parts.Add(scaleHeight is int h and > 0
+                ? $"zscale=w=-2:h={h.ToString(CultureInfo.InvariantCulture)}:t=linear:npl=100"
+                : "zscale=t=linear:npl=100");
             parts.Add("format=gbrpf32le");
             parts.Add("zscale=p=bt709");
             parts.Add($"tonemap={toneMapMethod}:desat=0");
             parts.Add("zscale=t=bt709:m=bt709:r=tv");
             parts.Add("format=yuv420p");
         }
-
-        if (scaleHeight is int h and > 0)
-            parts.Add($"scale=-2:{h}");
+        else if (scaleHeight is int h and > 0)
+        {
+            parts.Add($"scale=-2:{h.ToString(CultureInfo.InvariantCulture)}");
+        }
 
         return string.Join(',', parts);
     }

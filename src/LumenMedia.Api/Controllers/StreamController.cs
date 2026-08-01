@@ -5,6 +5,7 @@ using LumenMedia.Application.Common;
 using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Media;
 using LumenMedia.Infrastructure.Configuration;
+using LumenMedia.Infrastructure.Transcoding;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -51,8 +52,12 @@ public sealed class StreamController(
         if (!await WaitForFileAsync(file, PlaylistWait, ct))
             return NotFound();
 
+        var bytes = await StableFileSnapshot.ReadAsync(file, TimeSpan.FromSeconds(2), ct);
+        if (bytes is null)
+            return NotFound();
+
         Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
-        return PhysicalFile(file, HlsContentType);
+        return File(bytes, HlsContentType);
     }
 
     [AllowAnonymous]
@@ -74,8 +79,13 @@ public sealed class StreamController(
         if (!await WaitForPlaylistReadyAsync(file, PlaylistWait, ct))
             return NotFound();
 
+        // Snapshot so Content-Length matches body even if ffmpeg rewrites the playlist.
+        var bytes = await StableFileSnapshot.ReadAsync(file, TimeSpan.FromSeconds(2), ct);
+        if (bytes is null)
+            return NotFound();
+
         Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
-        return PhysicalFile(file, HlsContentType);
+        return File(bytes, HlsContentType);
     }
 
     /// <summary>
@@ -130,18 +140,17 @@ public sealed class StreamController(
         if (file is null)
             return NotFound();
 
-        // Wait until size stops growing so we never serve a half-written fMP4 fragment
-        // (incomplete moof/mdat → MSE append errors → hls.js reload loops).
-        if (!await WaitForStableFileAsync(file, SegmentWait, ct))
+        // Stabilize + byte snapshot: PhysicalFile sets Content-Length from FileInfo, then
+        // ffmpeg can append → "too many bytes written" and a broken HLS fragment.
+        var bytes = await StableFileSnapshot.ReadAsync(file, SegmentWait, ct);
+        if (bytes is null)
             return NotFound();
 
         var contentType = segment.EndsWith(".m4s", StringComparison.OrdinalIgnoreCase)
             ? "video/iso.segment"
             : "video/mp4";
         Response.Headers.CacheControl = "no-store";
-        // Full-file responses only — range GETs on a just-finalized m4s are a common
-        // source of truncated fragments under Docker bind mounts.
-        return PhysicalFile(file, contentType, enableRangeProcessing: false);
+        return File(bytes, contentType);
     }
 
     [HttpGet("items/{id:guid}/download")]
@@ -243,56 +252,6 @@ public sealed class StreamController(
         }
 
         return System.IO.File.Exists(path) && new FileInfo(path).Length > 0;
-    }
-
-    /// <summary>
-    /// Like <see cref="WaitForFileAsync"/> but requires two consecutive identical
-    /// non-zero sizes (~100ms apart) so ffmpeg has finished the fragment.
-    /// </summary>
-    private static async Task<bool> WaitForStableFileAsync(string path, TimeSpan timeout, CancellationToken ct)
-    {
-        var deadline = DateTime.UtcNow + timeout;
-        long lastLen = -1;
-        var stableCount = 0;
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            if (System.IO.File.Exists(path))
-            {
-                long len;
-                try
-                {
-                    len = new FileInfo(path).Length;
-                }
-                catch (IOException)
-                {
-                    len = -1;
-                }
-
-                if (len > 0 && len == lastLen)
-                {
-                    stableCount++;
-                    if (stableCount >= 2)
-                        return true;
-                }
-                else
-                {
-                    stableCount = 0;
-                    lastLen = len;
-                }
-            }
-
-            await Task.Delay(50, ct);
-        }
-
-        try
-        {
-            return System.IO.File.Exists(path) && new FileInfo(path).Length > 0;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
     }
 
     private static async Task<bool> WaitForPlaylistReadyAsync(string path, TimeSpan timeout, CancellationToken ct)

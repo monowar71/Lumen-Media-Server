@@ -240,6 +240,24 @@ public class PlaybackDeciderTests
     }
 
     [Fact]
+    public void Force_hdr_keeps_tonemap_reason_when_audio_also_needs_downmix()
+    {
+        var result = _decider.Decide(
+            BuildSource(hdr: "HDR10"),
+            Profile(supportsHdr: true),
+            PlaybackMode.Manual,
+            "original",
+            _options,
+            forceHdrToSdr: true,
+            audioLayout: "stereo");
+
+        result.Method.Should().Be(PlaybackMethod.Transcode);
+        result.ToneMapActive.Should().BeTrue();
+        result.Reason.Should().Be("ForceHdrToSdr");
+        result.SelectedAudioLayout.Should().Be("stereo");
+    }
+
+    [Fact]
     public void Audio_layout_5_1_keeps_direct_play_when_source_is_6ch()
     {
         var result = _decider.Decide(

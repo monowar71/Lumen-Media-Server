@@ -33,8 +33,9 @@ public sealed class PlaybackOptions
     public int IdleTimeoutSec { get; set; } = 120;
 
     /// <summary>
-    /// HDR→SDR tonemap algorithm for ffmpeg (<c>hable</c>, <c>mobius</c>, <c>reinhard</c>, <c>bt2390</c>).
-    /// Overridden at runtime by admin settings when present.
+    /// HDR→SDR tonemap algorithm for the software ffmpeg path
+    /// (<c>hable</c>, <c>mobius</c>, <c>reinhard</c>, <c>bt2390</c>).
+    /// Ignored when VAAPI <c>tonemap_vaapi</c> is used. Overridden at runtime by admin settings.
     /// </summary>
     public string HdrToneMapMethod { get; set; } = "hable";
 

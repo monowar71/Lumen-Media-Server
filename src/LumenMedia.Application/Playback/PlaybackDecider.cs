@@ -81,12 +81,18 @@ public sealed class PlaybackDecider
         }
 
         var toneMap = NeedsToneMap(video?.Hdr, profile.SupportsHdr, forceHdrToSdr);
-        if (toneMap && method != PlaybackMethod.Transcode)
+        if (toneMap)
         {
-            method = PlaybackMethod.Transcode;
+            // Keep HDR reason even when AudioDownmix/ManualQuality also apply so session
+            // logs and reason-based ffmpeg guards stay consistent with ToneMapActive.
+            if (method != PlaybackMethod.Transcode)
+            {
+                method = PlaybackMethod.Transcode;
+                if (string.IsNullOrWhiteSpace(audioLayout))
+                    selectedLayout = AudioLayouts.Resolve(null, sourceChannels, encodingAudio: true);
+            }
+
             reason = forceHdrToSdr ? "ForceHdrToSdr" : "HdrNotSupported";
-            if (string.IsNullOrWhiteSpace(audioLayout))
-                selectedLayout = AudioLayouts.Resolve(null, sourceChannels, encodingAudio: true);
         }
 
         return new PlaybackDecisionResult

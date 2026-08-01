@@ -15,7 +15,7 @@ public sealed record TranscodingSettingsDto
     public int SegmentDurationSec { get; init; } = 4;
     public IReadOnlyList<LadderRungDto> Ladder { get; init; } = [];
     public int DefaultRemoteCapKbps { get; init; } = 8000;
-    /// <summary>HDR→SDR tonemap method: hable | mobius | reinhard | bt2390.</summary>
+    /// <summary>Software HDR→SDR tonemap method: hable | mobius | reinhard | bt2390 (ignored on VAAPI <c>tonemap_vaapi</c>).</summary>
     public string HdrToneMapMethod { get; init; } = "hable";
 }
 

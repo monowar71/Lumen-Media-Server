@@ -115,6 +115,8 @@ public sealed class PlaybackService(
         var opts = options.Value;
         var user = await uow.Users.GetByIdAsync(caller.UserId, ct);
         var userCap = user?.MaxBitrateRemoteKbps;
+        // null = leave session flag alone; only an explicit true/false changes it.
+        // Clients must omit the field on unrelated set-quality calls (quality/audio).
         var forceHdr = request.ForceHdrToSdr ?? session.ForceHdrToSdr;
         var audioLayout = request.AudioLayout ?? session.AudioLayout;
         var decision = decider.Decide(
@@ -134,8 +136,15 @@ public sealed class PlaybackService(
             decision.Reason,
             session.AudioStreamIndex,
             session.SubtitleBurnInIndex);
+        // Burn-in still forces Transcode, but must not erase an active HDR→SDR reason.
         if (reasonOverride is not null)
-            decision = decision with { Method = PlaybackMethod.Transcode, Reason = reasonOverride };
+        {
+            decision = decision with
+            {
+                Method = PlaybackMethod.Transcode,
+                Reason = decision.ToneMapActive ? decision.Reason : reasonOverride,
+            };
+        }
 
         if (decision.Method == PlaybackMethod.Transcode && user is { AllowTranscoding: false })
             throw new ForbiddenException("Transcoding is disabled for this user.");
@@ -158,11 +167,13 @@ public sealed class PlaybackService(
             await transcoder.StopAsync(sessionId, ct);
 
         logger.LogInformation(
-            "Playback set-quality {SessionId} method={Method} quality={Quality} reason={Reason} posMs={PosMs}",
+            "Playback set-quality {SessionId} method={Method} quality={Quality} reason={Reason} forceHdr={ForceHdr} toneMap={ToneMap} posMs={PosMs}",
             sessionId,
             decision.Method,
             decision.SelectedQualityId,
             decision.Reason,
+            forceHdr,
+            decision.ToneMapActive,
             request.ResumePositionMs);
 
         return BuildResponse(session, decision, session.MediaId, source);
