@@ -14,6 +14,8 @@ public sealed record PlaybackDecisionResult
     public required string SelectedAudioLayout { get; init; }
     public IReadOnlyList<AudioLayoutOption> AvailableAudioLayouts { get; init; } = [];
     public string? SourceHdr { get; init; }
+    public IReadOnlyList<HdrToneMapMethodOption> AvailableHdrToneMapMethods { get; init; } = [];
+    public string? SelectedHdrToneMapMethod { get; init; }
 }
 
 /// <summary>
@@ -32,13 +34,18 @@ public sealed class PlaybackDecider
         int? userRemoteCapKbps = null,
         bool forceHdrToSdr = false,
         string? audioLayout = null,
-        Guid? audioStreamId = null)
+        Guid? audioStreamId = null,
+        string? hdrToneMapMethod = null)
     {
         var video = source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
         var audios = source.Streams.Where(s => s.Kind == StreamKind.Audio).ToList();
         var selectedAudio = ResolveAudioStream(audios, audioStreamId);
         var sourceChannels = selectedAudio?.Channels;
         var availableLayouts = AudioLayouts.AvailableFor(sourceChannels);
+        var hasHdr = !string.IsNullOrEmpty(video?.Hdr);
+        var availableToneMapMethods = hasHdr
+            ? HdrToneMapMethods.AvailableFor(options.HardwareAccel)
+            : Array.Empty<HdrToneMapMethodOption>();
 
         var cap = ResolveBitrateCap(profile.MaxBitrateKbps, userRemoteCapKbps);
         var availableQualities = BuildLadder(source, video, mode, options, cap);
@@ -95,16 +102,27 @@ public sealed class PlaybackDecider
             reason = forceHdrToSdr ? "ForceHdrToSdr" : "HdrNotSupported";
         }
 
+        var toneMapActive = toneMap && method == PlaybackMethod.Transcode;
+        // Preferred method whenever source is HDR (sticky for the player menu even if Off).
+        var preferredToneMapMethod = hasHdr
+            ? HdrToneMapMethods.Resolve(
+                hdrToneMapMethod,
+                options.HardwareAccel,
+                options.HdrToneMapMethod)
+            : null;
+
         return new PlaybackDecisionResult
         {
             Method = method,
             Reason = reason,
             SelectedQualityId = selected,
             AvailableQualities = availableQualities,
-            ToneMapActive = toneMap && method == PlaybackMethod.Transcode,
+            ToneMapActive = toneMapActive,
             SelectedAudioLayout = selectedLayout,
             AvailableAudioLayouts = availableLayouts,
             SourceHdr = string.IsNullOrEmpty(video?.Hdr) ? null : video!.Hdr,
+            AvailableHdrToneMapMethods = availableToneMapMethods,
+            SelectedHdrToneMapMethod = preferredToneMapMethod,
         };
     }
 

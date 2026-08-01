@@ -204,6 +204,26 @@ public class PlaybackDeciderTests
         result.Method.Should().Be(PlaybackMethod.Transcode);
         result.Reason.Should().Be("ForceHdrToSdr");
         result.ToneMapActive.Should().BeTrue();
+        result.AvailableHdrToneMapMethods.Select(m => m.Id).Should().Contain("hable");
+        result.SelectedHdrToneMapMethod.Should().Be("hable");
+    }
+
+    [Fact]
+    public void Hdr_tone_map_method_request_is_honoured_when_tonemap_active()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "vaapi", HdrToneMapMethod = "hable" };
+        var result = _decider.Decide(
+            BuildSource(hdr: "HDR10"),
+            Profile(supportsHdr: true),
+            PlaybackMode.Auto,
+            null,
+            opts,
+            forceHdrToSdr: true,
+            hdrToneMapMethod: "mobius");
+
+        result.ToneMapActive.Should().BeTrue();
+        result.SelectedHdrToneMapMethod.Should().Be("mobius");
+        result.AvailableHdrToneMapMethods.Select(m => m.Id).Should().Contain(["vaapi", "hable", "mobius"]);
     }
 
     [Fact]

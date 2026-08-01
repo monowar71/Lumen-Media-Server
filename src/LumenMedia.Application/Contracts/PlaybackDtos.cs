@@ -26,6 +26,11 @@ public sealed record PlaybackDecisionRequest
     public DeviceProfile Profile { get; init; } = new();
     /// <summary>Force HDR→SDR tonemap even when the device profile advertises HDR support.</summary>
     public bool ForceHdrToSdr { get; init; }
+    /// <summary>
+    /// Preferred HDR→SDR method (<c>vaapi</c>, <c>hable</c>, <c>mobius</c>, <c>reinhard</c>, <c>bt2390</c>).
+    /// Ignored when tonemap is not active; unknown values fall back to server default.
+    /// </summary>
+    public string? HdrToneMapMethod { get; init; }
     /// <summary>Target channel layout id (<c>stereo</c>, <c>2.1</c>, <c>5.1</c>, <c>mono</c>). Null = server default.</summary>
     public string? AudioLayout { get; init; }
 }
@@ -35,6 +40,14 @@ public sealed record AudioLayoutOption
     public required string Id { get; init; }
     public required string Label { get; init; }
     public int Channels { get; init; }
+}
+
+public sealed record HdrToneMapMethodOption
+{
+    public required string Id { get; init; }
+    public required string Label { get; init; }
+    /// <summary>True for GPU VPP (<c>vaapi</c>); false for software <c>tonemap=</c>.</summary>
+    public bool Hardware { get; init; }
 }
 
 public sealed record QualityOption
@@ -103,6 +116,12 @@ public sealed record PlaybackDecisionResponse
 
     /// <summary>Effective audio layout id for this session.</summary>
     public required string SelectedAudioLayout { get; init; }
+
+    /// <summary>HDR→SDR methods available for this source/server (empty when source is SDR).</summary>
+    public IReadOnlyList<HdrToneMapMethodOption> AvailableHdrToneMapMethods { get; init; } = [];
+
+    /// <summary>Effective method id when <see cref="ToneMapActive"/>; otherwise null.</summary>
+    public string? SelectedHdrToneMapMethod { get; init; }
 }
 
 public sealed record SetQualityRequest
@@ -117,6 +136,11 @@ public sealed record SetQualityRequest
     /// Omit on quality/audio-only changes so HDR→SDR is not cleared accidentally.
     /// </summary>
     public bool? ForceHdrToSdr { get; init; }
+    /// <summary>
+    /// <c>null</c> keeps the session method; a known id selects it (and implies tonemap on
+    /// when paired with <see cref="ForceHdrToSdr"/> = true).
+    /// </summary>
+    public string? HdrToneMapMethod { get; init; }
     public string? AudioLayout { get; init; }
 }
 

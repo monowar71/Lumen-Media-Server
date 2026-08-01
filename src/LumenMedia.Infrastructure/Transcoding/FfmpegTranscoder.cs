@@ -468,8 +468,19 @@ public static class FfmpegArgumentBuilder
         if (burnIn || toneMap)
             encodeVideo = true;
 
+        // Session/request method wins over admin default. Software algorithms force the
+        // CPU path even when HardwareAccel=vaapi so the player menu can A/B methods live.
+        var requestedToneMethod = toneMap
+            ? HdrToneMapMethods.Resolve(
+                request.HdrToneMapMethod,
+                opts.HardwareAccel,
+                opts.HdrToneMapMethod)
+            : request.HdrToneMapMethod;
+        var toneMapOnVaapi = !toneMap
+                            || HdrToneMapMethods.UsesVaapi(requestedToneMethod, opts.HardwareAccel);
         var useVaapi = encodeVideo
-                       && opts.HardwareAccel.Equals("vaapi", StringComparison.OrdinalIgnoreCase);
+                       && opts.HardwareAccel.Equals("vaapi", StringComparison.OrdinalIgnoreCase)
+                       && toneMapOnVaapi;
 
         var layoutId = string.IsNullOrWhiteSpace(request.AudioLayout)
             ? AudioLayouts.DefaultEncode
@@ -516,7 +527,9 @@ public static class FfmpegArgumentBuilder
         args.Add("-i");
         args.Add(request.Session.SourcePath);
 
-        var toneMapMethod = NormalizeToneMapMethod(opts.HdrToneMapMethod);
+        var toneMapMethod = toneMap && HdrToneMapMethods.IsSoftware(requestedToneMethod)
+            ? HdrToneMapMethods.NormalizeSoftwareAlgorithm(requestedToneMethod)
+            : NormalizeToneMapMethod(opts.HdrToneMapMethod);
         var softwareFilter = BuildSoftwareVideoFilter(toneMap, toneMapMethod, needsScale ? scaleHeight : null);
         var vaapiFilter = BuildVaapiVideoFilter(toneMap, needsScale ? scaleHeight : null);
 

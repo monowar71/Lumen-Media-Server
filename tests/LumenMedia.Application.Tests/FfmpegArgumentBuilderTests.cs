@@ -238,6 +238,7 @@ public class FfmpegArgumentBuilderTests
         var request = Request(PlaybackMethod.Transcode, "720p", "HdrNotSupported") with
         {
             ToneMap = true,
+            HdrToneMapMethod = "vaapi",
             SourceHeight = 1080,
             SourceWidth = 1920,
         };
@@ -249,9 +250,29 @@ public class FfmpegArgumentBuilderTests
         var vf = args[args.ToList().IndexOf("-vf") + 1];
         vf.Should().Contain("tonemap_vaapi=format=nv12:p=bt709:t=bt709:m=bt709");
         vf.Should().Contain("scale_vaapi=w=-2:h=720");
-        // Admin method applies only to the software fallback path.
+        // Session vaapi method ignores admin software algorithm.
         vf.Should().NotContain("tonemap=mobius");
         args.Should().NotContain("libx264");
+    }
+
+    [Fact]
+    public void Tone_map_software_method_forces_libx264_even_when_vaapi_configured()
+    {
+        var opts = new PlaybackOptions { HardwareAccel = "vaapi", HdrToneMapMethod = "hable" };
+        var request = Request(PlaybackMethod.Transcode, "720p", "ForceHdrToSdr") with
+        {
+            ToneMap = true,
+            HdrToneMapMethod = "mobius",
+            SourceHeight = 1080,
+            SourceWidth = 1920,
+        };
+        var args = FfmpegArgumentBuilder.Build(request, "/tmp/out", opts);
+
+        args.Should().ContainInOrder("-c:v", "libx264");
+        args.Should().NotContain("-hwaccel");
+        var vf = args[args.ToList().IndexOf("-vf") + 1];
+        vf.Should().Contain("tonemap=mobius");
+        vf.Should().NotContain("tonemap_vaapi");
     }
 
     [Fact]
@@ -282,6 +303,7 @@ public class FfmpegArgumentBuilderTests
         var request = Request(PlaybackMethod.Transcode, "720p", "ForceHdrToSdr") with
         {
             ToneMap = true,
+            HdrToneMapMethod = "vaapi",
             SubtitleBurnInIndex = 3,
             SourceHeight = 1080,
             SourceWidth = 1920,

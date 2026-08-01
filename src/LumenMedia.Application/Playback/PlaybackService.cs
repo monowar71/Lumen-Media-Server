@@ -44,7 +44,8 @@ public sealed class PlaybackService(
             userCap,
             request.ForceHdrToSdr,
             request.AudioLayout,
-            request.AudioStreamId);
+            request.AudioStreamId,
+            request.HdrToneMapMethod);
         var (audioIndex, burnInIndex, reasonOverride) = ResolveTracks(source, request.AudioStreamId, request.SubtitleStreamId, decision.Reason);
         if (reasonOverride is not null)
             decision = decision with { Method = PlaybackMethod.Transcode, Reason = reasonOverride };
@@ -79,6 +80,7 @@ public sealed class PlaybackService(
             Profile = request.Profile,
             Reason = decision.Reason,
             ForceHdrToSdr = request.ForceHdrToSdr,
+            HdrToneMapMethod = decision.SelectedHdrToneMapMethod,
             AudioLayout = decision.SelectedAudioLayout,
             CreatedAt = now,
             ExpiresAt = now + SessionLifetime,
@@ -118,6 +120,15 @@ public sealed class PlaybackService(
         // null = leave session flag alone; only an explicit true/false changes it.
         // Clients must omit the field on unrelated set-quality calls (quality/audio).
         var forceHdr = request.ForceHdrToSdr ?? session.ForceHdrToSdr;
+        // Selecting a concrete tonemap method turns HDR→SDR on unless Off was requested.
+        if (request.HdrToneMapMethod is not null
+            && HdrToneMapMethods.IsKnown(request.HdrToneMapMethod)
+            && request.ForceHdrToSdr is not false)
+        {
+            forceHdr = true;
+        }
+
+        var toneMethod = request.HdrToneMapMethod ?? session.HdrToneMapMethod;
         var audioLayout = request.AudioLayout ?? session.AudioLayout;
         var decision = decider.Decide(
             source,
@@ -128,7 +139,8 @@ public sealed class PlaybackService(
             userCap,
             forceHdr,
             audioLayout,
-            request.AudioStreamId);
+            request.AudioStreamId,
+            toneMethod);
         var (audioIndex, burnInIndex, reasonOverride) = ResolveTracks(
             source,
             request.AudioStreamId,
@@ -157,6 +169,7 @@ public sealed class PlaybackService(
         session.AudioStreamIndex = audioIndex;
         session.SubtitleBurnInIndex = burnInIndex;
         session.ForceHdrToSdr = forceHdr;
+        session.HdrToneMapMethod = decision.SelectedHdrToneMapMethod ?? toneMethod;
         session.AudioLayout = decision.SelectedAudioLayout;
         session.LastAccess = clock.GetUtcNow();
         sessions.Touch(sessionId, clock.GetUtcNow() + SessionLifetime);
@@ -167,13 +180,14 @@ public sealed class PlaybackService(
             await transcoder.StopAsync(sessionId, ct);
 
         logger.LogInformation(
-            "Playback set-quality {SessionId} method={Method} quality={Quality} reason={Reason} forceHdr={ForceHdr} toneMap={ToneMap} posMs={PosMs}",
+            "Playback set-quality {SessionId} method={Method} quality={Quality} reason={Reason} forceHdr={ForceHdr} toneMap={ToneMap} toneMethod={ToneMethod} posMs={PosMs}",
             sessionId,
             decision.Method,
             decision.SelectedQualityId,
             decision.Reason,
             forceHdr,
             decision.ToneMapActive,
+            session.HdrToneMapMethod,
             request.ResumePositionMs);
 
         return BuildResponse(session, decision, session.MediaId, source);
@@ -206,20 +220,22 @@ public sealed class PlaybackService(
             session.SelectedQualityId,
             request.PositionMs);
 
+        var seekDecision = decider.Decide(
+            source,
+            session.Profile,
+            session.Mode,
+            session.Mode == PlaybackMode.Manual ? session.SelectedQualityId : null,
+            options.Value,
+            (await uow.Users.GetByIdAsync(caller.UserId, ct))?.MaxBitrateRemoteKbps,
+            session.ForceHdrToSdr,
+            session.AudioLayout,
+            hdrToneMapMethod: session.HdrToneMapMethod);
         var decision = new PlaybackDecisionResult
         {
             Method = session.Method,
             Reason = session.Reason,
             SelectedQualityId = session.SelectedQualityId,
-            AvailableQualities = decider.Decide(
-                source,
-                session.Profile,
-                session.Mode,
-                session.Mode == PlaybackMode.Manual ? session.SelectedQualityId : null,
-                options.Value,
-                (await uow.Users.GetByIdAsync(caller.UserId, ct))?.MaxBitrateRemoteKbps,
-                session.ForceHdrToSdr,
-                session.AudioLayout).AvailableQualities,
+            AvailableQualities = seekDecision.AvailableQualities,
             ToneMapActive = PlaybackDecider.NeedsToneMap(
                 source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video)?.Hdr,
                 session.Profile.SupportsHdr,
@@ -231,6 +247,8 @@ public sealed class PlaybackService(
                     && (session.AudioStreamIndex is null || s.StreamIndex == session.AudioStreamIndex))?.Channels
                 ?? source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Audio)?.Channels),
             SourceHdr = source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video)?.Hdr,
+            AvailableHdrToneMapMethods = seekDecision.AvailableHdrToneMapMethods,
+            SelectedHdrToneMapMethod = session.HdrToneMapMethod ?? seekDecision.SelectedHdrToneMapMethod,
         };
 
         return BuildResponse(session, decision, session.MediaId, source);
@@ -296,6 +314,7 @@ public sealed class PlaybackService(
                 SourceHeight = video?.Height,
                 MaxOutputHeight = ResolutionLimits.ParseMaxHeight(session.Profile.MaxResolution),
                 ToneMap = PlaybackDecider.NeedsToneMap(video?.Hdr, session.Profile.SupportsHdr, session.ForceHdrToSdr),
+                HdrToneMapMethod = session.HdrToneMapMethod,
                 AudioLayout = session.AudioLayout,
             },
             ct);
@@ -485,6 +504,8 @@ public sealed class PlaybackService(
                 ? decision.AvailableAudioLayouts
                 : AudioLayouts.AvailableFor(audio.FirstOrDefault(a => a.IsDefault)?.Channels ?? audio.FirstOrDefault()?.Channels),
             SelectedAudioLayout = decision.SelectedAudioLayout,
+            AvailableHdrToneMapMethods = decision.AvailableHdrToneMapMethods,
+            SelectedHdrToneMapMethod = decision.SelectedHdrToneMapMethod ?? session.HdrToneMapMethod,
         };
     }
 }

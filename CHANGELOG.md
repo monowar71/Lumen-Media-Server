@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-08-02
+
+### Added
+
+- Playback `hdrToneMapMethod` on decision / `set-quality` with `availableHdrToneMapMethods` / `selectedHdrToneMapMethod` in the response. Clients can switch Off / Hardware (VAAPI) / hable / mobius / reinhard / bt2390 mid-session; software methods force the CPU path even when `HardwareAccel=vaapi`.
+
+### Changed
+
+- `/health` and server-info report version `0.1.11`.
+
 ## [0.1.10] - 2026-08-02
 
 ### Fixed
@@ -137,7 +147,8 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.10...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.11...HEAD
+[0.1.11]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.11
 [0.1.10]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.10
 [0.1.9]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.9
 [0.1.8]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.8

@@ -2792,6 +2792,24 @@
           }
         }
       },
+      "HdrToneMapMethodOption": {
+        "required": [
+          "id",
+          "label"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "hardware": {
+            "type": "boolean"
+          }
+        }
+      },
       "AudioStreamOption": {
         "required": [
           "id"
@@ -4469,6 +4487,12 @@
           "forceHdrToSdr": {
             "type": "boolean"
           },
+          "hdrToneMapMethod": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "audioLayout": {
             "type": [
               "null",
@@ -4569,6 +4593,18 @@
           },
           "selectedAudioLayout": {
             "type": "string"
+          },
+          "availableHdrToneMapMethods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HdrToneMapMethodOption"
+            }
+          },
+          "selectedHdrToneMapMethod": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -5068,6 +5104,12 @@
             "type": [
               "null",
               "boolean"
+            ]
+          },
+          "hdrToneMapMethod": {
+            "type": [
+              "null",
+              "string"
             ]
           },
           "audioLayout": {

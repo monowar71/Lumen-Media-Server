@@ -26,6 +26,8 @@ public sealed class PlaybackSession
     public string Reason { get; set; } = string.Empty;
     /// <summary>Force HDR→SDR tonemap for this session.</summary>
     public bool ForceHdrToSdr { get; set; }
+    /// <summary>Selected HDR→SDR method id (<c>vaapi</c>, <c>hable</c>, …); sticky across set-quality.</summary>
+    public string? HdrToneMapMethod { get; set; }
     /// <summary>Selected channel layout id (stereo, 2.1, 5.1, mono).</summary>
     public string AudioLayout { get; set; } = "stereo";
     public DateTimeOffset CreatedAt { get; init; }
@@ -64,6 +66,8 @@ public sealed record TranscodeRequest
     public int? MaxOutputHeight { get; init; }
     /// <summary>Apply HDR→SDR tonemap filters.</summary>
     public bool ToneMap { get; init; }
+    /// <summary>HDR→SDR method id (<c>vaapi</c> = GPU VPP; otherwise software algorithm).</summary>
+    public string? HdrToneMapMethod { get; init; }
     /// <summary>Target audio channel layout id for AAC encode.</summary>
     public string AudioLayout { get; init; } = "stereo";
 }
