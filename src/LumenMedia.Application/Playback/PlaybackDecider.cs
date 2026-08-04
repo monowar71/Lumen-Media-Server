@@ -50,7 +50,10 @@ public sealed class PlaybackDecider
         var cap = ResolveBitrateCap(profile.MaxBitrateKbps, userRemoteCapKbps);
         var availableQualities = BuildLadder(source, video, mode, options, cap);
 
-        var (method, reason) = DecideMethod(source, video, audios, profile, cap, forceHdrToSdr);
+        // Decision must use the *selected* audio track. Checking Any() would allow
+        // DirectStream when an AAC sidecar exists while the default AC-3/EAC-3 track
+        // is copied into fMP4 — Chrome MSE then fails (ac-3 in stsd).
+        var (method, reason) = DecideMethod(source, video, selectedAudio, profile, cap, forceHdrToSdr);
 
         string selectedLayout;
         if (!string.IsNullOrWhiteSpace(audioLayout) && AudioLayouts.IsKnown(audioLayout))
@@ -146,7 +149,7 @@ public sealed class PlaybackDecider
     private static (PlaybackMethod, string) DecideMethod(
         MediaSource source,
         MediaStream? video,
-        IReadOnlyList<MediaStream> audios,
+        MediaStream? selectedAudio,
         DeviceProfile profile,
         int? cap,
         bool forceHdrToSdr)
@@ -176,8 +179,8 @@ public sealed class PlaybackDecider
         if (cap is not null && effectiveBitrate is not null && effectiveBitrate > cap)
             return (PlaybackMethod.Transcode, "BitrateTooHigh");
 
-        var audioSupported = audios.Count == 0
-            || audios.Any(a => ContainsIgnoreCase(profile.AudioCodecs, a.Codec ?? string.Empty));
+        var audioSupported = selectedAudio is null
+            || ContainsIgnoreCase(profile.AudioCodecs, selectedAudio.Codec ?? string.Empty);
         if (!audioSupported)
             return (PlaybackMethod.Transcode, "AudioCodecNotSupported");
 

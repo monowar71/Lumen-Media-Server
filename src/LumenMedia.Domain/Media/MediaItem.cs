@@ -11,6 +11,7 @@ public abstract class MediaItem
     private readonly List<Genre> _genres = [];
     private readonly List<MediaPerson> _people = [];
     private readonly List<Artwork> _artworks = [];
+    private readonly List<string> _studios = [];
 
     protected MediaItem() { }
 
@@ -54,6 +55,8 @@ public abstract class MediaItem
     public IReadOnlyList<Genre> Genres => _genres;
     public IReadOnlyList<MediaPerson> People => _people;
     public IReadOnlyList<Artwork> Artworks => _artworks;
+    /// <summary>Production companies (movies) or networks (series), from metadata providers.</summary>
+    public IReadOnlyList<string> Studios => _studios;
 
     public void SetYear(int? year) => Year = year;
     public void SetOverview(string? overview) => Overview = overview;
@@ -84,6 +87,29 @@ public abstract class MediaItem
     public void SetTrailerUrl(string? url) => TrailerUrl = url;
 
     public void SetThemeYoutubeUrl(string? url) => ThemeYoutubeUrl = url;
+
+    /// <summary>
+    /// Replaces studio/network names. Null clears nothing (caller should pass empty to clear).
+    /// Dedupes case-insensitively and caps at 5 entries.
+    /// </summary>
+    public void SetStudios(IEnumerable<string>? studios)
+    {
+        _studios.Clear();
+        if (studios is null)
+            return;
+
+        foreach (var raw in studios)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            var name = raw.Trim();
+            if (_studios.Any(s => s.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            _studios.Add(name);
+            if (_studios.Count >= 5)
+                break;
+        }
+    }
 
     /// <summary>
     /// When locked, automatic metadata refresh skips this item; explicit match still applies.

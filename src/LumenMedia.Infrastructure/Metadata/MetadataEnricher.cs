@@ -413,6 +413,13 @@ public sealed class MetadataEnricher(
         if (item is Movie movie)
             movie.SetMovieDetails(details.Tagline, details.ReleaseDate, details.RuntimeMs);
 
+        if (item is Series series)
+            series.SetSeriesDetails(details.EndYear, details.Status);
+
+        // null = provider omitted studios; keep existing. Empty list clears.
+        if (details.Studios is not null)
+            item.SetStudios(details.Studios);
+
         // null = provider has no trailer data; keep whatever an earlier provider found.
         if (details.TrailerUrl is not null)
             item.SetTrailerUrl(details.TrailerUrl);

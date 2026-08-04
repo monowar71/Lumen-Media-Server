@@ -130,6 +130,27 @@ public sealed class TvdbMetadataProvider(
             var poster = AbsoluteArtwork(data.Image) ?? AbsoluteArtwork(data.Poster);
             var backdrop = AbsoluteArtwork(data.Fanart) ?? AbsoluteArtwork(data.Background);
 
+            SeriesStatus? status = null;
+            int? endYear = null;
+            List<string>? studios = null;
+            if (kind == MediaKind.Series)
+            {
+                status = MapSeriesStatus(data.Status?.Name);
+                endYear = ParseYear(data.LastAired);
+                if (status == SeriesStatus.Continuing)
+                    endYear = null;
+                studios = CollectStudios(data.OriginalNetwork?.Name, data.LatestNetwork?.Name);
+            }
+            else
+            {
+                studios = CollectStudios(
+                    data.Companies?
+                        .Where(c => !string.IsNullOrWhiteSpace(c.Name))
+                        .Select(c => c.Name!)
+                        .Take(5)
+                        .ToArray());
+            }
+
             return new MetadataDetails(
                 Provider: ProviderName,
                 ProviderId: providerId,
@@ -147,7 +168,10 @@ public sealed class TvdbMetadataProvider(
                 Genres: data.Genres?.Select(g => g.Name).Where(n => !string.IsNullOrWhiteSpace(n)).Cast<string>().ToList() ?? [],
                 Tagline: null,
                 ReleaseDate: release,
-                RuntimeMs: runtimeMs);
+                RuntimeMs: runtimeMs,
+                Studios: studios,
+                Status: status,
+                EndYear: endYear);
         }
         // Timeout-safe: HttpClient timeout is an OCE without ct cancellation — swallow as failure.
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
@@ -312,6 +336,40 @@ public sealed class TvdbMetadataProvider(
         return int.TryParse(value.AsSpan(0, 4), out var y) ? y : null;
     }
 
+    public static SeriesStatus? MapSeriesStatus(string? statusName)
+    {
+        if (string.IsNullOrWhiteSpace(statusName))
+            return null;
+        var s = statusName.Trim();
+        if (s.Equals("Ended", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("Canceled", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
+            return SeriesStatus.Ended;
+        if (s.Equals("Continuing", StringComparison.OrdinalIgnoreCase)
+            || s.Equals("Upcoming", StringComparison.OrdinalIgnoreCase))
+            return SeriesStatus.Continuing;
+        return null;
+    }
+
+    private static List<string>? CollectStudios(params string?[]? names)
+    {
+        if (names is null || names.Length == 0)
+            return null;
+        var result = new List<string>();
+        foreach (var raw in names)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+            var name = raw.Trim();
+            if (result.Any(s => s.Equals(name, StringComparison.OrdinalIgnoreCase)))
+                continue;
+            result.Add(name);
+            if (result.Count >= 5)
+                break;
+        }
+        return result.Count == 0 ? null : result;
+    }
+
     private sealed record TvdbEnvelope<T>(T? Data);
 
     private sealed record TvdbLogin(string? Token);
@@ -329,6 +387,7 @@ public sealed class TvdbMetadataProvider(
         string? Overview,
         string? Year,
         [property: JsonPropertyName("firstAired")] string? FirstAired,
+        [property: JsonPropertyName("lastAired")] string? LastAired,
         [property: JsonPropertyName("releaseDate")] string? ReleaseDate,
         int? Runtime,
         double? Score,
@@ -337,10 +396,17 @@ public sealed class TvdbMetadataProvider(
         string? Fanart,
         string? Background,
         [property: JsonPropertyName("contentRating")] string? ContentRating,
+        TvdbStatus? Status,
+        [property: JsonPropertyName("originalNetwork")] TvdbCompany? OriginalNetwork,
+        [property: JsonPropertyName("latestNetwork")] TvdbCompany? LatestNetwork,
+        List<TvdbCompany>? Companies,
         List<TvdbGenre>? Genres,
         [property: JsonPropertyName("remoteIds")] List<TvdbRemoteId>? RemoteIds,
         [property: JsonPropertyName("nameTranslations")] Dictionary<string, string>? NameTranslations,
         [property: JsonPropertyName("overviewTranslations")] Dictionary<string, string>? OverviewTranslations);
+
+    private sealed record TvdbStatus(string? Name);
+    private sealed record TvdbCompany(string? Name);
 
     private sealed record TvdbGenre(string? Name);
 

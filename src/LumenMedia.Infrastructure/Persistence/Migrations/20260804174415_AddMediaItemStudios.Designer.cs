@@ -3,6 +3,7 @@ using System;
 using LumenMedia.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -10,9 +11,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace LumenMedia.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(LumenMediaDbContext))]
-    partial class LumenMediaDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260804174415_AddMediaItemStudios")]
+    partial class AddMediaItemStudios
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.10");

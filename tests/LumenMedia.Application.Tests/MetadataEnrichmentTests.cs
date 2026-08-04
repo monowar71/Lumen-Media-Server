@@ -137,6 +137,44 @@ public sealed class MetadataEnrichmentTests
     }
 
     [Fact]
+    public async Task Enrich_series_applies_status_end_year_and_studios()
+    {
+        var series = new Series(Guid.CreateVersion7(), "Breaking Bad", DateTimeOffset.UtcNow);
+        var details = Details() with
+        {
+            ProviderId = "1396",
+            Title = "Breaking Bad",
+            Status = SeriesStatus.Ended,
+            EndYear = 2013,
+            Year = 2008,
+            OfficialRating = "TV-MA",
+            Studios = ["AMC"],
+        };
+        var (sut, _, _) = CreateSut(series, details);
+
+        var ok = await sut.EnrichAsync(series.Id, "Tmdb", "1396", default);
+
+        ok.Should().BeTrue();
+        series.Status.Should().Be(SeriesStatus.Ended);
+        series.EndYear.Should().Be(2013);
+        series.OfficialRating.Should().Be("TV-MA");
+        series.Studios.Should().Equal("AMC");
+    }
+
+    [Fact]
+    public async Task Enrich_movie_applies_studios()
+    {
+        var movie = new Movie(Guid.CreateVersion7(), "Matrix", DateTimeOffset.UtcNow);
+        var details = Details() with { Studios = ["Warner Bros.", "Village Roadshow"] };
+        var (sut, _, _) = CreateSut(movie, details);
+
+        var ok = await sut.EnrichAsync(movie.Id, "Tmdb", "603", default);
+
+        ok.Should().BeTrue();
+        movie.Studios.Should().Equal("Warner Bros.", "Village Roadshow");
+    }
+
+    [Fact]
     public async Task Enrich_series_applies_episode_titles_per_season()
     {
         var series = new Series(Guid.CreateVersion7(), "Dark", DateTimeOffset.UtcNow);

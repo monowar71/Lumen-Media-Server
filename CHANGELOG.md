@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-08-04
+
+### Added
+
+- Metadata enrich now fills series `status` / `endYear`, studio/network names (`studios` on movie and series detail), and TMDB age ratings (`officialRating` via `release_dates` / `content_ratings`).
+
+### Fixed
+
+- Playback decision checks the *selected* audio track (not Any()) so DirectStream is not chosen when the default track is AC-3/EAC-3 while an AAC sidecar exists.
+
+### Changed
+
+- `/health` and server-info report version `0.1.12`.
+
 ## [0.1.11] - 2026-08-02
 
 ### Added
@@ -147,7 +161,8 @@ First tagged release. Images are published to Docker Hub (`monowar71/lumenmedia-
 - Background jobs, scanning, and auth hardening.
 - Shared-folder scan classification and artwork insert persistence.
 
-[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.11...HEAD
+[Unreleased]: https://github.com/monowar71/Lumen-Media-Server/compare/v0.1.12...HEAD
+[0.1.12]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.12
 [0.1.11]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.11
 [0.1.10]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.10
 [0.1.9]: https://github.com/monowar71/Lumen-Media-Server/releases/tag/v0.1.9

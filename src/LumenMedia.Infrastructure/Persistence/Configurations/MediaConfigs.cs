@@ -21,6 +21,8 @@ public sealed class MediaItemConfig : IEntityTypeConfiguration<MediaItem>
         b.Property(x => x.Title).IsRequired();
         b.Property(x => x.SortTitle).IsRequired();
 
+        b.PrimitiveCollection(x => x.Studios);
+
         b.HasIndex(x => new { x.LibraryId, x.SortTitle });
         b.HasIndex(x => new { x.LibraryId, x.AddedAt });
         b.HasIndex(x => x.TmdbId);

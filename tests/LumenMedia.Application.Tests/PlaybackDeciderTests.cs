@@ -291,4 +291,51 @@ public class PlaybackDeciderTests
         result.Method.Should().Be(PlaybackMethod.DirectPlay);
         result.SelectedAudioLayout.Should().Be("5.1");
     }
+
+    [Fact]
+    public void Transcode_when_default_audio_unsupported_even_if_sidecar_matches()
+    {
+        // MKV with default AC-3 + AAC commentary — browsers reject AC-3 in fMP4.
+        var source = BuildSource(container: "mkv", audioCodec: "ac3");
+        source.AddStream(new MediaStream(StreamKind.Audio, 2)
+        {
+            Codec = "aac",
+            Channels = 2,
+            IsDefault = false,
+        });
+
+        var result = _decider.Decide(
+            source,
+            Profile(containers: ["mp4", "hls"], audioCodecs: ["aac"]),
+            PlaybackMode.Auto,
+            null,
+            _options);
+
+        result.Method.Should().Be(PlaybackMethod.Transcode);
+        result.Reason.Should().Be("AudioCodecNotSupported");
+    }
+
+    [Fact]
+    public void Direct_stream_when_explicit_audio_stream_matches_profile()
+    {
+        var source = BuildSource(container: "mkv", audioCodec: "ac3");
+        var aac = new MediaStream(StreamKind.Audio, 2)
+        {
+            Codec = "aac",
+            Channels = 2,
+            IsDefault = false,
+        };
+        source.AddStream(aac);
+
+        var result = _decider.Decide(
+            source,
+            Profile(containers: ["mp4", "hls"], audioCodecs: ["aac"]),
+            PlaybackMode.Auto,
+            null,
+            _options,
+            audioStreamId: aac.Id);
+
+        result.Method.Should().Be(PlaybackMethod.DirectStream);
+        result.Reason.Should().Be("ContainerNotSupported");
+    }
 }

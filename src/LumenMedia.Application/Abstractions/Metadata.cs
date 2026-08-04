@@ -39,7 +39,11 @@ public sealed record MetadataDetails(
     DateOnly? ReleaseDate = null,
     long? RuntimeMs = null,
     IReadOnlyList<PersonCredit>? People = null,
-    string? TrailerUrl = null);
+    string? TrailerUrl = null,
+    /// <summary>Production companies (movies) or broadcast networks (series).</summary>
+    IReadOnlyList<string>? Studios = null,
+    SeriesStatus? Status = null,
+    int? EndYear = null);
 
 /// <summary>Locale pair used when fetching localized metadata from providers.</summary>
 public sealed record MetadataLanguage(string Language, string FallbackLanguage);

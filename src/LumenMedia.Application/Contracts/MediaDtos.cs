@@ -111,6 +111,8 @@ public sealed record MovieDetail
     public string? OfficialRating { get; init; }
     public IReadOnlyList<string> Genres { get; init; } = [];
     public IReadOnlyList<PersonDto> People { get; init; } = [];
+    /// <summary>Production companies from the metadata provider.</summary>
+    public IReadOnlyList<string> Studios { get; init; } = [];
     /// <summary>Remote trailer URL (usually YouTube), when the metadata provider has one.</summary>
     public string? TrailerUrl { get; init; }
     /// <summary>Cached ambient theme audio path (<c>/api/v1/items/{id}/theme</c>) when available.</summary>
@@ -145,6 +147,8 @@ public sealed record SeriesDetail
     public string? OfficialRating { get; init; }
     public IReadOnlyList<string> Genres { get; init; } = [];
     public IReadOnlyList<PersonDto> People { get; init; } = [];
+    /// <summary>Production companies from the metadata provider.</summary>
+    public IReadOnlyList<string> Studios { get; init; } = [];
     /// <summary>Remote trailer URL (usually YouTube), when the metadata provider has one.</summary>
     public string? TrailerUrl { get; init; }
     /// <summary>Cached ambient theme audio path (<c>/api/v1/items/{id}/theme</c>) when available.</summary>
