@@ -12,7 +12,16 @@ public enum MediaKind
 public enum LibraryType
 {
     Movies,
-    Series
+    Series,
+    /// <summary>Catalog of <c>.torrent</c> files; playback streams via embedded TorrServer.</summary>
+    Torrent
+}
+
+/// <summary>How <see cref="Media.MediaSource"/> bytes are obtained at playback time.</summary>
+public enum MediaSourceKind
+{
+    LocalFile,
+    Torrent
 }
 
 public enum StreamKind

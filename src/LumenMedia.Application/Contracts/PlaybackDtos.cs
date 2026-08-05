@@ -122,6 +122,44 @@ public sealed record PlaybackDecisionResponse
 
     /// <summary>Effective method id when <see cref="ToneMapActive"/>; otherwise null.</summary>
     public string? SelectedHdrToneMapMethod { get; init; }
+
+    /// <summary>Present when the session streams from a torrent source (TorrServer).</summary>
+    public TorrentPlaybackStatsDto? TorrentStats { get; init; }
+
+    /// <summary>True when playback input is a torrent (stats may still be warming up).</summary>
+    public bool IsTorrentSource { get; init; }
+
+    /// <summary>Source codecs when already probed (torrent play-time or cached from prior play).</summary>
+    public ProbedFormatDto? ProbedFormat { get; init; }
+}
+
+/// <summary>Live TorrServer metrics for an active torrent playback session.</summary>
+public sealed record TorrentPlaybackStatsDto
+{
+    public int Seeders { get; init; }
+    public int Peers { get; init; }
+    /// <summary>Download speed in bytes per second.</summary>
+    public long DownloadSpeedBytesPerSec { get; init; }
+}
+
+/// <summary>Keep-alive response; may include live torrent metrics and play-time probe.</summary>
+public sealed record PlaybackPingResponse
+{
+    public TorrentPlaybackStatsDto? TorrentStats { get; init; }
+    /// <summary>Filled after TorrServer play URL has been ffprobed (or already known from DB).</summary>
+    public ProbedFormatDto? ProbedFormat { get; init; }
+}
+
+/// <summary>Compact source format for player HUD (after torrent play-time probe).</summary>
+public sealed record ProbedFormatDto
+{
+    public string? VideoCodec { get; init; }
+    public string? VideoHdr { get; init; }
+    public int? Width { get; init; }
+    public int? Height { get; init; }
+    public string? AudioCodec { get; init; }
+    public int? AudioChannels { get; init; }
+    public string? AudioTitle { get; init; }
 }
 
 public sealed record SetQualityRequest

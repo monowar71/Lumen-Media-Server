@@ -40,11 +40,11 @@ public sealed class PlaybackController(PlaybackService playback) : ControllerBas
     }
 
     [HttpPost("{sessionId}/ping")]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<IActionResult> Ping(string sessionId, CancellationToken ct)
+    [ProducesResponseType<PlaybackPingResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<PlaybackPingResponse>> Ping(string sessionId, CancellationToken ct)
     {
-        await playback.PingAsync(User.ToCaller(), sessionId, ct);
-        return NoContent();
+        var response = await playback.PingAsync(User.ToCaller(), sessionId, ct);
+        return Ok(response);
     }
 
     [HttpPost("{sessionId}/stop")]

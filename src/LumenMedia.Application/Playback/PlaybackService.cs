@@ -13,6 +13,10 @@ public sealed class PlaybackService(
     PlaybackDecider decider,
     IPlaybackSessionStore sessions,
     ITranscoder transcoder,
+    ITorrentPlaybackResolver torrentPlayback,
+    ITorrServerProcess torrServerProcess,
+    ITorrServerClient torrServerClient,
+    ITorrentSourceProbeCoordinator torrentProbe,
     IOptions<PlaybackOptions> options,
     TimeProvider clock,
     IRealtimeNotifier notifier,
@@ -50,6 +54,10 @@ public sealed class PlaybackService(
         if (reasonOverride is not null)
             decision = decision with { Method = PlaybackMethod.Transcode, Reason = reasonOverride };
 
+        // Force HLS for torrent sources until we have a real probe (no DirectPlay of TorrServer URLs to clients).
+        if (source.IsTorrent && decision.Method == PlaybackMethod.DirectPlay)
+            decision = decision with { Method = PlaybackMethod.Transcode, Reason = "TorrentStream" };
+
         if (decision.Method == PlaybackMethod.Transcode && user is { AllowTranscoding: false })
             throw new ForbiddenException("Transcoding is disabled for this user.");
 
@@ -58,50 +66,78 @@ public sealed class PlaybackService(
         if (decision.Method == PlaybackMethod.Transcode && transcoder.ActiveSessionCount >= opts.MaxConcurrentSessions)
             throw new RateLimitException("Maximum number of concurrent transcode sessions reached. Try again later.");
 
-        var safePath = await ResolveSafeSourcePathAsync(source, ct);
+        var safePath = await ResolvePlayableInputAsync(source, ct);
+        var holdsTorrLease = source.IsTorrent;
+        if (holdsTorrLease)
+            torrServerProcess.AcquireLease();
 
-        var now = clock.GetUtcNow();
-        // Full GUID: a truncated id (32 bits) is both guessable and collision-prone.
-        var sessionId = $"sess-{Guid.NewGuid():N}";
-        var session = sessions.Create(new PlaybackSession
+        PlaybackSession? session = null;
+        try
         {
-            SessionId = sessionId,
-            UserId = caller.UserId,
-            MediaId = request.MediaId,
-            MediaSourceId = source.Id,
-            SourcePath = safePath,
-            Container = source.Container,
-            Method = decision.Method,
-            Mode = request.Mode,
-            SelectedQualityId = decision.SelectedQualityId,
-            StartPositionMs = request.ResumePositionMs,
-            AudioStreamIndex = audioIndex,
-            SubtitleBurnInIndex = burnInIndex,
-            Profile = request.Profile,
-            Reason = decision.Reason,
-            ForceHdrToSdr = request.ForceHdrToSdr,
-            HdrToneMapMethod = decision.SelectedHdrToneMapMethod,
-            AudioLayout = decision.SelectedAudioLayout,
-            CreatedAt = now,
-            ExpiresAt = now + SessionLifetime,
-            LastAccess = now,
-        });
+            var now = clock.GetUtcNow();
+            // Full GUID: a truncated id (32 bits) is both guessable and collision-prone.
+            var sessionId = $"sess-{Guid.NewGuid():N}";
+            session = sessions.Create(new PlaybackSession
+            {
+                SessionId = sessionId,
+                UserId = caller.UserId,
+                MediaId = request.MediaId,
+                MediaSourceId = source.Id,
+                SourcePath = safePath,
+                Container = source.Container,
+                Method = decision.Method,
+                Mode = request.Mode,
+                SelectedQualityId = decision.SelectedQualityId,
+                StartPositionMs = request.ResumePositionMs,
+                AudioStreamIndex = audioIndex,
+                SubtitleBurnInIndex = burnInIndex,
+                Profile = request.Profile,
+                Reason = decision.Reason,
+                ForceHdrToSdr = request.ForceHdrToSdr,
+                HdrToneMapMethod = decision.SelectedHdrToneMapMethod,
+                AudioLayout = decision.SelectedAudioLayout,
+                CreatedAt = now,
+                ExpiresAt = now + SessionLifetime,
+                LastAccess = now,
+                HoldsTorrServerLease = holdsTorrLease,
+                TorrentInfoHash = source.IsTorrent ? source.InfoHash : null,
+                ProbedFormat = source.IsTorrent ? MediaMapper.MapProbedFormat(source.Streams) : null,
+            });
 
-        if (decision.Method != PlaybackMethod.DirectPlay)
-            await StartTranscodeAsync(session, decision.SelectedQualityId, request.ResumePositionMs, decision.Reason, ct);
+            if (decision.Method != PlaybackMethod.DirectPlay)
+                await StartTranscodeAsync(session, decision.SelectedQualityId, request.ResumePositionMs, decision.Reason, ct);
 
-        logger.LogInformation(
-            "Playback start {SessionId} media={MediaId} method={Method} quality={Quality} reason={Reason} posMs={PosMs}",
-            sessionId,
-            request.MediaId,
-            decision.Method,
-            decision.SelectedQualityId,
-            decision.Reason,
-            request.ResumePositionMs);
+            if (source.IsTorrent)
+            {
+                torrentProbe.ScheduleIfNeeded(
+                    sessionId,
+                    source.Id,
+                    safePath,
+                    source.NeedsStreamProbe());
+            }
 
-        await notifier.NotifyNowPlayingAsync(caller.UserId, request.MediaId, decision.Method, sessionId, ct);
+            logger.LogInformation(
+                "Playback start {SessionId} media={MediaId} method={Method} quality={Quality} reason={Reason} posMs={PosMs}",
+                sessionId,
+                request.MediaId,
+                decision.Method,
+                decision.SelectedQualityId,
+                decision.Reason,
+                request.ResumePositionMs);
 
-        return BuildResponse(session, decision, request.MediaId, source);
+            await notifier.NotifyNowPlayingAsync(caller.UserId, request.MediaId, decision.Method, sessionId, ct);
+
+            var torrentStats = await TryGetTorrentStatsAsync(source.IsTorrent ? source.InfoHash : null, ct);
+            return BuildResponse(session, decision, request.MediaId, source, torrentStats);
+        }
+        catch
+        {
+            if (session is not null)
+                sessions.Remove(session.SessionId);
+            if (holdsTorrLease)
+                torrServerProcess.ReleaseLease();
+            throw;
+        }
     }
 
     public async Task<PlaybackDecisionResponse> SetQualityAsync(Caller caller, string sessionId, SetQualityRequest request, CancellationToken ct)
@@ -190,7 +226,12 @@ public sealed class PlaybackService(
             session.HdrToneMapMethod,
             request.ResumePositionMs);
 
-        return BuildResponse(session, decision, session.MediaId, source);
+        return BuildResponse(
+            session,
+            decision,
+            session.MediaId,
+            source,
+            await TryGetTorrentStatsAsync(session.TorrentInfoHash, ct));
     }
 
     public async Task<PlaybackDecisionResponse> SeekAsync(Caller caller, string sessionId, SeekRequest request, CancellationToken ct)
@@ -251,10 +292,15 @@ public sealed class PlaybackService(
             SelectedHdrToneMapMethod = session.HdrToneMapMethod ?? seekDecision.SelectedHdrToneMapMethod,
         };
 
-        return BuildResponse(session, decision, session.MediaId, source);
+        return BuildResponse(
+            session,
+            decision,
+            session.MediaId,
+            source,
+            await TryGetTorrentStatsAsync(session.TorrentInfoHash, ct));
     }
 
-    public Task PingAsync(Caller caller, string sessionId, CancellationToken ct)
+    public async Task<PlaybackPingResponse> PingAsync(Caller caller, string sessionId, CancellationToken ct)
     {
         var session = sessions.Get(sessionId);
         if (session is not null && session.UserId == caller.UserId)
@@ -262,9 +308,15 @@ public sealed class PlaybackService(
             var now = clock.GetUtcNow();
             session.LastAccess = now;
             sessions.Touch(sessionId, now + SessionLifetime);
+            var stats = await TryGetTorrentStatsAsync(session.TorrentInfoHash, ct);
+            return new PlaybackPingResponse
+            {
+                TorrentStats = stats,
+                ProbedFormat = session.ProbedFormat,
+            };
         }
 
-        return Task.CompletedTask;
+        return new PlaybackPingResponse();
     }
 
     public async Task StopAsync(Caller caller, string sessionId, CancellationToken ct)
@@ -273,6 +325,7 @@ public sealed class PlaybackService(
         if (session is null || session.UserId != caller.UserId)
             return;
         await transcoder.StopAsync(sessionId, ct);
+        await ReleaseTorrentSessionAsync(session, ct);
         sessions.Remove(sessionId);
         logger.LogInformation("Playback stop {SessionId}", sessionId);
     }
@@ -353,6 +406,68 @@ public sealed class PlaybackService(
 
         if (libraryId is null || !caller.CanAccess(libraryId.Value))
             throw new NotFoundException("Media not found.");
+    }
+
+    /// <summary>
+    /// Resolves ffmpeg/DirectPlay input: local file under library roots, or TorrServer HTTP URL.
+    /// </summary>
+    private async Task<string> ResolvePlayableInputAsync(MediaSource source, CancellationToken ct)
+    {
+        if (source.IsTorrent)
+            return await ResolveTorrentStreamUrlAsync(source, ct);
+        return await ResolveSafeSourcePathAsync(source, ct);
+    }
+
+    private async Task<string> ResolveTorrentStreamUrlAsync(MediaSource source, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(source.TorrentPath)
+            || string.IsNullOrWhiteSpace(source.InfoHash)
+            || source.TorrentFileIndex is null)
+        {
+            throw new ValidationException("mediaSourceId", "Torrent source is incomplete.");
+        }
+
+        var roots = await ResolveLibraryRootsAsync(source, ct);
+        if (roots.Count == 0
+            || !PathSafety.TryResolveUnderRoots(source.TorrentPath, roots, out var safeTorrent)
+            || !File.Exists(safeTorrent))
+        {
+            throw new NotFoundException("Torrent file not found.");
+        }
+
+        try
+        {
+            return await torrentPlayback.ResolvePlayUrlAsync(
+                safeTorrent,
+                source.InfoHash,
+                source.TorrentFileIndex.Value,
+                ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException and not NotFoundException and not ValidationException)
+        {
+            logger.LogWarning(ex, "Failed to start TorrServer stream for {Path}", safeTorrent);
+            throw new ServiceUnavailableException("Torrent stream is temporarily unavailable. Try again.");
+        }
+    }
+
+    private async Task ReleaseTorrentSessionAsync(PlaybackSession session, CancellationToken ct)
+    {
+        if (!session.HoldsTorrServerLease)
+            return;
+
+        try
+        {
+            var source = await uow.Media.GetSourceByIdAsync(session.MediaSourceId, ct);
+            if (source is { IsTorrent: true, InfoHash: not null })
+                await torrServerClient.DropAsync(source.InfoHash, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "TorrServer drop on session stop failed");
+        }
+
+        torrServerProcess.ReleaseLease();
+        session.HoldsTorrServerLease = false;
     }
 
     /// <summary>
@@ -446,7 +561,8 @@ public sealed class PlaybackService(
         PlaybackSession session,
         PlaybackDecisionResult decision,
         Guid mediaId,
-        MediaSource source)
+        MediaSource source,
+        TorrentPlaybackStatsDto? torrentStats = null)
     {
         // DirectPlay also goes through /stream/{sessionId}/… so native players (Android
         // ExoPlayer, <video src>) can keep fetching after the short-lived access JWT expires.
@@ -464,7 +580,7 @@ public sealed class PlaybackService(
                 Id = s.Id,
                 Language = s.Language,
                 Title = s.Title,
-                Codec = s.Codec,
+                Codec = MediaMapper.SanitizeCodec(s.Codec),
                 Channels = s.Channels,
                 IsDefault = s.IsDefault,
             }).ToList();
@@ -477,7 +593,7 @@ public sealed class PlaybackService(
                 Id = s.Id,
                 Language = s.Language,
                 Title = s.Title,
-                Format = s.SubtitleFormat ?? s.Codec,
+                Format = s.SubtitleFormat ?? MediaMapper.SanitizeCodec(s.Codec) ?? s.Codec,
                 IsDefault = s.IsDefault,
                 IsForced = s.IsForced,
                 DeliveryUrl = ArtworkUrlBuilder.SubtitleUrl(mediaId, s.Id),
@@ -506,6 +622,33 @@ public sealed class PlaybackService(
             SelectedAudioLayout = decision.SelectedAudioLayout,
             AvailableHdrToneMapMethods = decision.AvailableHdrToneMapMethods,
             SelectedHdrToneMapMethod = decision.SelectedHdrToneMapMethod ?? session.HdrToneMapMethod,
+            TorrentStats = torrentStats,
+            IsTorrentSource = session.HoldsTorrServerLease || !string.IsNullOrEmpty(session.TorrentInfoHash),
+            ProbedFormat = session.ProbedFormat,
         };
+    }
+
+    private async Task<TorrentPlaybackStatsDto?> TryGetTorrentStatsAsync(string? infoHash, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(infoHash))
+            return null;
+        try
+        {
+            var status = await torrServerClient.GetAsync(infoHash, ct);
+            if (status is null)
+                return null;
+            var peers = status.TotalPeers > 0 ? status.TotalPeers : status.ActivePeers;
+            return new TorrentPlaybackStatsDto
+            {
+                Seeders = Math.Max(0, status.ConnectedSeeders),
+                Peers = Math.Max(0, peers),
+                DownloadSpeedBytesPerSec = (long)Math.Max(0, Math.Round(status.DownloadSpeedBytesPerSec)),
+            };
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "TorrServer stats unavailable for {Hash}", infoHash);
+            return null;
+        }
     }
 }

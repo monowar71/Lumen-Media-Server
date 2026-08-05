@@ -122,12 +122,18 @@ public sealed class MediaSourceConfig : IEntityTypeConfiguration<MediaSource>
             "ck_media_sources_owner",
             "(media_item_id IS NULL) <> (episode_id IS NULL)"));
         b.HasKey(x => x.Id);
+        b.Property(x => x.Kind).HasConversion<string>().IsRequired();
         b.Property(x => x.Path).IsRequired();
         b.Property(x => x.Container).IsRequired();
+        b.Property(x => x.TorrentPath);
+        b.Property(x => x.InfoHash);
+        b.Property(x => x.TorrentFileIndex);
+        b.Property(x => x.TorrentRelativePath);
         b.HasIndex(x => x.Path).IsUnique();
         b.HasIndex(x => x.MediaItemId);
         b.HasIndex(x => x.EpisodeId);
         b.HasIndex(x => x.ContentHash);
+        b.HasIndex(x => x.InfoHash);
 
         b.Property(x => x.MediaItemId).HasColumnName("media_item_id");
         b.Property(x => x.EpisodeId).HasColumnName("episode_id");

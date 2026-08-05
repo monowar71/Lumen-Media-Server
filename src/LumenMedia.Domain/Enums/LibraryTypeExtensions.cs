@@ -17,6 +17,8 @@ public static class LibraryTypeExtensions
         {
             LibraryType.Movies => kind == MediaKind.Movie,
             LibraryType.Series => kind == MediaKind.Series,
+            // Mixed catalog: classify each video inside a .torrent via NameParser.
+            LibraryType.Torrent => kind is MediaKind.Movie or MediaKind.Series,
             _ => false,
         };
 }

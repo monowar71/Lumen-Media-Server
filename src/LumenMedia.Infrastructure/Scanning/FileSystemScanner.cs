@@ -2,6 +2,7 @@ using LumenMedia.Application.Abstractions;
 using LumenMedia.Application.Common;
 using LumenMedia.Application.Playback;
 using LumenMedia.Domain.Enums;
+using LumenMedia.Domain.Libraries;
 using LumenMedia.Domain.Media;
 using Microsoft.Extensions.Logging;
 
@@ -17,6 +18,7 @@ namespace LumenMedia.Infrastructure.Scanning;
 public sealed class FileSystemScanner(
     IUnitOfWork uow,
     INameParser nameParser,
+    ITorrentMetadataParser torrentParser,
     FfprobeClient ffprobe,
     TimeProvider clock,
     ExternalHistoryPromoter externalHistoryPromoter,
@@ -27,12 +29,29 @@ public sealed class FileSystemScanner(
         ".mkv", ".mp4", ".avi", ".mov", ".ts", ".m2ts", ".webm", ".wmv", ".flv", ".m4v",
     };
 
+    private static readonly HashSet<string> SampleNameMarkers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sample", "trailer", "preview", "rarbg.com", "rarbg",
+    };
+
     public async Task<ScanResult> ScanAsync(Guid libraryId, IProgress<double>? progress, CancellationToken ct)
     {
         var library = await uow.Libraries.GetByIdAsync(libraryId, ct);
         if (library is null)
             return new ScanResult(0, 0, 0);
 
+        if (library.Type == LibraryType.Torrent)
+            return await ScanTorrentsAsync(library, progress, ct);
+
+        return await ScanVideoFilesAsync(library, progress, ct);
+    }
+
+    private async Task<ScanResult> ScanVideoFilesAsync(
+        Library library,
+        IProgress<double>? progress,
+        CancellationToken ct)
+    {
+        var libraryId = library.Id;
         var files = EnumerateVideoFiles(library.Paths.Select(p => p.Path)).ToList();
         var seriesCache = new Dictionary<string, Series>(StringComparer.OrdinalIgnoreCase);
         var added = 0;
@@ -46,7 +65,6 @@ public sealed class FileSystemScanner(
             var existing = await uow.Media.FindSourceByPathAsync(file, ct);
             if (existing is not null)
             {
-                // Backfill stream titles / disposition flags for libraries scanned before tags.title was mapped.
                 await RefreshStreamTagsIfNeededAsync(file, ct);
                 progress?.Report((i + 1) / (double)files.Count);
                 continue;
@@ -55,8 +73,6 @@ public sealed class FileSystemScanner(
             var parsed = nameParser.Parse(Path.GetFileName(file));
             if (!library.Type.Accepts(parsed.Kind))
             {
-                // Shared-root layout: Movies/Series libraries scan the same folder; each takes
-                // only its kind. Dedicated trees simply skip stray files of the other kind.
                 skippedWrongKind++;
                 logger.LogDebug(
                     "Skipping {File}: parsed as {Kind}, library is {LibraryType}",
@@ -85,8 +101,6 @@ public sealed class FileSystemScanner(
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // A failed SaveChanges leaves the failed graph tracked; clear so later files
-                // (and MarkScanned) are not blocked by the same UNIQUE/constraint error.
                 uow.DiscardChanges();
                 seriesCache.Clear();
                 logger.LogWarning(ex, "Failed to import {File}", file);
@@ -95,7 +109,6 @@ public sealed class FileSystemScanner(
             progress?.Report((i + 1) / (double)files.Count);
         }
 
-        // Re-load: DiscardChanges may have detached the library entity mid-scan.
         library = await uow.Libraries.GetByIdAsync(libraryId, ct) ?? library;
         library.MarkScanned(clock.GetUtcNow());
         await uow.SaveChangesAsync(ct);
@@ -105,6 +118,238 @@ public sealed class FileSystemScanner(
                 libraryId,
                 skippedWrongKind);
         return new ScanResult(added, 0, 0);
+    }
+
+    private async Task<ScanResult> ScanTorrentsAsync(
+        Library library,
+        IProgress<double>? progress,
+        CancellationToken ct)
+    {
+        var libraryId = library.Id;
+        var torrents = EnumerateTorrentFiles(library.Paths.Select(p => p.Path)).ToList();
+        var seriesCache = new Dictionary<string, Series>(StringComparer.OrdinalIgnoreCase);
+        var added = 0;
+        var skippedWrongKind = 0;
+
+        for (var i = 0; i < torrents.Count; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var torrentFile = torrents[i];
+            var roots = library.Paths.Select(p => p.Path).ToList();
+            if (!PathSafety.TryResolveUnderRoots(torrentFile, roots, out var safeTorrent))
+            {
+                logger.LogWarning("Skipping {File}: real path escapes library roots", torrentFile);
+                progress?.Report(torrents.Count == 0 ? 1 : (i + 1) / (double)torrents.Count);
+                continue;
+            }
+
+            TorrentMetadata meta;
+            try
+            {
+                meta = torrentParser.ParseFile(safeTorrent);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogWarning(ex, "Failed to parse torrent {File}", safeTorrent);
+                progress?.Report((i + 1) / (double)torrents.Count);
+                continue;
+            }
+
+            var videoEntries = meta.Files
+                .Where(IsVideoTorrentEntry)
+                .Where(f => !IsSampleOrTrailer(f.Path))
+                .ToList();
+
+            foreach (var entry in videoEntries)
+            {
+                var sourcePath = $"{safeTorrent}#{entry.Index}";
+                var existing = await uow.Media.FindSourceByPathAsync(sourcePath, ct);
+                if (existing is not null)
+                    continue;
+
+                var parseName = Path.GetFileName(entry.Path);
+                if (string.IsNullOrWhiteSpace(parseName))
+                    parseName = Path.GetFileNameWithoutExtension(safeTorrent);
+                var parsed = nameParser.Parse(parseName);
+                if (!library.Type.Accepts(parsed.Kind))
+                {
+                    skippedWrongKind++;
+                    continue;
+                }
+
+                try
+                {
+                    var container = Path.GetExtension(entry.Path).TrimStart('.').ToLowerInvariant();
+                    if (string.IsNullOrEmpty(container))
+                        container = "mkv";
+                    var mtime = File.Exists(safeTorrent)
+                        ? new DateTimeOffset(File.GetLastWriteTimeUtc(safeTorrent), TimeSpan.Zero)
+                        : clock.GetUtcNow();
+
+                    var source = MediaSource.CreateTorrent(
+                        safeTorrent,
+                        meta.InfoHash,
+                        entry.Index,
+                        entry.Path,
+                        container,
+                        entry.Length,
+                        mtime,
+                        clock.GetUtcNow());
+                    // No ffprobe at scan — empty codec until play-time probe; clients hide "unknown".
+                    source.AddStream(new MediaStream(StreamKind.Video, 0));
+
+                    var imported = parsed.Kind == MediaKind.Movie
+                        ? await ImportTorrentMovieAsync(library.Id, source, parsed, ct)
+                        : await ImportTorrentEpisodeAsync(library.Id, source, parsed, seriesCache, ct);
+                    if (imported)
+                        added++;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    uow.DiscardChanges();
+                    seriesCache.Clear();
+                    logger.LogWarning(ex, "Failed to import torrent entry {File}#{Index}", safeTorrent, entry.Index);
+                }
+            }
+
+            progress?.Report((i + 1) / (double)torrents.Count);
+        }
+
+        library = await uow.Libraries.GetByIdAsync(libraryId, ct) ?? library;
+        library.MarkScanned(clock.GetUtcNow());
+        await uow.SaveChangesAsync(ct);
+        if (skippedWrongKind > 0)
+            logger.LogInformation(
+                "Torrent library {LibraryId} skipped {Skipped} non-matching entries",
+                libraryId,
+                skippedWrongKind);
+        return new ScanResult(added, 0, 0);
+    }
+
+    private async Task<bool> ImportTorrentMovieAsync(
+        Guid libraryId,
+        MediaSource source,
+        ParsedName parsed,
+        CancellationToken ct)
+    {
+        var now = clock.GetUtcNow();
+        var movie = new Movie(libraryId, parsed.Title, now);
+        movie.SetYear(parsed.Year);
+        source.OwnedByMovie(movie.Id);
+        movie.AddSource(source);
+        await uow.Media.AddAsync(movie, ct);
+        await uow.SaveChangesAsync(ct);
+        await externalHistoryPromoter.PromoteForMovieAsync(movie, ct);
+        return true;
+    }
+
+    private async Task<bool> ImportTorrentEpisodeAsync(
+        Guid libraryId,
+        MediaSource source,
+        ParsedName parsed,
+        Dictionary<string, Series> cache,
+        CancellationToken ct)
+    {
+        // Reuse episode import shape with a pre-built source (no ffprobe).
+        var now = clock.GetUtcNow();
+        var seasonNumber = parsed.Season ?? 1;
+        var episodeNumber = parsed.Episode ?? 1;
+
+        var seriesIsNew = false;
+        if (!cache.TryGetValue(parsed.Title, out var series))
+        {
+            series = await uow.Media.FindSeriesForScanAsync(libraryId, parsed.Title, ct);
+            if (series is null)
+            {
+                series = new Series(libraryId, parsed.Title, now);
+                series.SetYear(parsed.Year);
+                await uow.Media.AddAsync(series, ct);
+                seriesIsNew = true;
+            }
+
+            cache[parsed.Title] = series;
+        }
+
+        var season = series.Seasons.FirstOrDefault(s => s.SeasonNumber == seasonNumber);
+        var seasonIsNew = season is null;
+        if (season is null)
+        {
+            season = new Season(series.Id, seasonNumber);
+            series.AddSeason(season);
+        }
+
+        if (!seriesIsNew)
+        {
+            var existingEpisode = await uow.Media.FindEpisodeForScanAsync(series.Id, seasonNumber, episodeNumber, ct);
+            if (existingEpisode is not null)
+            {
+                source.OwnedByEpisode(existingEpisode.Id);
+                await uow.Media.AddMediaSourceAsync(source, ct);
+                await uow.SaveChangesAsync(ct);
+                await externalHistoryPromoter.PromoteForEpisodeAsync(existingEpisode, series, ct);
+                return true;
+            }
+        }
+        else
+        {
+            var cached = season.Episodes.FirstOrDefault(e => e.EpisodeNumber == episodeNumber);
+            if (cached is not null)
+                return false;
+        }
+
+        var episode = new Episode(series.Id, season.Id, seasonNumber, episodeNumber, now);
+        source.OwnedByEpisode(episode.Id);
+        episode.AddSource(source);
+        season.AddEpisode(episode);
+
+        if (!seriesIsNew)
+        {
+            if (seasonIsNew)
+                await uow.Media.AddSeasonAsync(season, ct);
+            else
+                await uow.Media.AddEpisodeAsync(episode, ct);
+        }
+
+        await uow.SaveChangesAsync(ct);
+        await externalHistoryPromoter.PromoteForEpisodeAsync(episode, series, ct);
+        return true;
+    }
+
+    private static bool IsVideoTorrentEntry(TorrentFileEntry entry) =>
+        VideoExtensions.Contains(Path.GetExtension(entry.Path));
+
+    private static bool IsSampleOrTrailer(string relativePath)
+    {
+        var name = Path.GetFileNameWithoutExtension(relativePath);
+        if (string.IsNullOrEmpty(name))
+            return false;
+        // Tiny samples often named *sample*; also skip common trailer markers.
+        foreach (var marker in SampleNameMarkers)
+        {
+            if (name.Contains(marker, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+
+        return false;
+    }
+
+    private static IEnumerable<string> EnumerateTorrentFiles(IEnumerable<string> roots)
+    {
+        var options = new EnumerationOptions
+        {
+            RecurseSubdirectories = true,
+            IgnoreInaccessible = true,
+            AttributesToSkip = 0,
+        };
+
+        foreach (var root in roots)
+        {
+            if (!Directory.Exists(root))
+                continue;
+
+            foreach (var file in Directory.EnumerateFiles(root, "*.torrent", options))
+                yield return file;
+        }
     }
 
     private async Task<bool> ImportMovieAsync(Guid libraryId, string file, ParsedName parsed, CancellationToken ct)
@@ -224,7 +469,8 @@ public sealed class FileSystemScanner(
         else
         {
             // Minimal fallback stream so playback decisions still have something to work with.
-            source.AddStream(new MediaStream(StreamKind.Video, 0) { Codec = "unknown" });
+            // Leave Codec empty — clients treat "unknown" as a placeholder and hide it.
+            source.AddStream(new MediaStream(StreamKind.Video, 0));
         }
 
         AttachExternalSubtitles(source, file);

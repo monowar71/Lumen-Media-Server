@@ -1,23 +1,14 @@
-# Notice
+# Third-party notices
 
-LumenMedia Server  
-Copyright (C) 2026 Alexander Goncharow and contributors
+## TorrServer
 
-This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU General Public License as published by
-the Free Software Foundation, either version 3 of the License, or
-(at your option) any later version.
+This product bundles [TorrServer](https://github.com/YouROK/TorrServer) (YouROK),
+licensed under the GNU General Public License v3.0.
 
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU General Public License for more details.
+Binary is downloaded at Docker image build time from GitHub Releases
+(`TorrServer-linux-amd64` / `TorrServer-linux-arm64`) and placed at
+`/usr/local/bin/torrserver`. It is started on demand for torrent playback and
+stopped when idle.
 
-You should have received a copy of the GNU General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-## Third-party
-
-Runtime and build dependencies are declared in the `.csproj` files and restored
-via NuGet. The production Docker image additionally installs `ffmpeg` and
-related packages from Debian apt repositories under their respective licenses.
+Source: https://github.com/YouROK/TorrServer
+License: https://github.com/YouROK/TorrServer/blob/master/LICENSE

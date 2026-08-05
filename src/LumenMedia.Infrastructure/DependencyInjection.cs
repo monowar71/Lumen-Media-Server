@@ -10,6 +10,7 @@ using LumenMedia.Infrastructure.Plex;
 using LumenMedia.Infrastructure.Scanning;
 using LumenMedia.Infrastructure.Security;
 using LumenMedia.Infrastructure.Settings;
+using LumenMedia.Infrastructure.Torrents;
 using LumenMedia.Infrastructure.Transcoding;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -29,6 +30,7 @@ public static class DependencyInjection
         services.Configure<JobWorkerOptions>(config.GetSection(JobWorkerOptions.SectionName));
         services.Configure<PlaybackOptions>(config.GetSection(PlaybackOptions.SectionName));
         services.Configure<MetadataOptions>(config.GetSection(MetadataOptions.SectionName));
+        services.Configure<TorrServerOptions>(config.GetSection(TorrServerOptions.SectionName));
 
         services.TryAddTimeProvider();
 
@@ -47,6 +49,8 @@ public static class DependencyInjection
         services.AddSingleton<ITokenService, JwtTokenService>();
         services.AddSingleton<INameParser, RegexNameParser>();
         services.AddSingleton<FfprobeClient>();
+        services.AddSingleton<IMediaProbe, MediaProbeAdapter>();
+        services.AddSingleton<ITorrentSourceProbeCoordinator, TorrentSourceProbeCoordinator>();
         services.AddSingleton<IArtworkStore, LocalArtworkStore>();
         services.AddSingleton<IThemeSongStore, LocalThemeSongStore>();
         services.AddSingleton<IThemerrDbClient, ThemerrDbClient>();
@@ -109,6 +113,16 @@ public static class DependencyInjection
         services.AddScoped<IFileImporter, HardlinkImporter>();
         services.AddSingleton<IMediaFileDeleter, Storage.MediaFileDeleter>();
         services.AddHostedService<LibraryAutoScanHostedService>();
+
+        services.AddSingleton<ITorrentMetadataParser, TorrentMetadataParser>();
+        services.AddSingleton<ITorrServerProcess, TorrServerProcessManager>();
+        services.AddSingleton<ITorrServerClient, TorrServerClient>();
+        services.AddSingleton<ITorrentPlaybackResolver, TorrServerPlaybackGateway>();
+        services.AddHttpClient("TorrServer", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(60);
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("LumenMedia/0.1");
+        });
 
         services.AddSingleton<IJobQueue, ChannelJobQueue>();
         services.AddHostedService<JobWorker>();

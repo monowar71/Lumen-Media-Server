@@ -1,6 +1,7 @@
 using LumenMedia.Application.Abstractions;
 using LumenMedia.Application.Playback;
 using LumenMedia.Infrastructure.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -14,6 +15,8 @@ namespace LumenMedia.Infrastructure.Transcoding;
 public sealed class TranscodeSessionJanitor(
     IPlaybackSessionStore sessions,
     ITranscoder transcoder,
+    ITorrServerProcess torrServerProcess,
+    IServiceScopeFactory scopeFactory,
     IOptions<PlaybackOptions> playbackOptions,
     IOptions<PathsOptions> pathsOptions,
     TimeProvider clock,
@@ -55,6 +58,7 @@ public sealed class TranscodeSessionJanitor(
                 expired,
                 idleTooLong);
             await transcoder.StopAsync(session.SessionId, ct);
+            await ReleaseTorrentLeaseAsync(session, ct);
             sessions.Remove(session.SessionId);
             stopped++;
         }
@@ -86,5 +90,28 @@ public sealed class TranscodeSessionJanitor(
 
         if (stopped > 0)
             logger.LogInformation("Transcode janitor cleaned {Count} session(s)/dir(s)", stopped);
+    }
+
+    private async Task ReleaseTorrentLeaseAsync(PlaybackSession session, CancellationToken ct)
+    {
+        if (!session.HoldsTorrServerLease)
+            return;
+
+        try
+        {
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var uow = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+            var torrClient = scope.ServiceProvider.GetRequiredService<ITorrServerClient>();
+            var source = await uow.Media.GetSourceByIdAsync(session.MediaSourceId, ct);
+            if (source?.InfoHash is not null)
+                await torrClient.DropAsync(source.InfoHash, ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogDebug(ex, "TorrServer drop during janitor cleanup failed");
+        }
+
+        torrServerProcess.ReleaseLease();
+        session.HoldsTorrServerLease = false;
     }
 }

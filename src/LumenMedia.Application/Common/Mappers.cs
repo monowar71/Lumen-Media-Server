@@ -64,7 +64,7 @@ public static class MediaMapper
         Id = s.Id,
         Kind = s.Kind,
         Index = s.StreamIndex,
-        Codec = s.Codec,
+        Codec = SanitizeCodec(s.Codec),
         Profile = s.Profile,
         Language = s.Language,
         Title = s.Title,
@@ -80,6 +80,39 @@ public static class MediaMapper
         IsExternal = s.IsExternal,
         Format = s.SubtitleFormat,
     };
+
+    /// <summary>Compact HUD snapshot from probed / stored streams.</summary>
+    public static ProbedFormatDto? MapProbedFormat(IReadOnlyList<MediaStream> streams)
+    {
+        var video = streams.FirstOrDefault(s => s.Kind == StreamKind.Video);
+        var audio = streams.FirstOrDefault(s => s.Kind == StreamKind.Audio && s.IsDefault)
+                    ?? streams.FirstOrDefault(s => s.Kind == StreamKind.Audio);
+        if (video is null && audio is null)
+            return null;
+
+        return new ProbedFormatDto
+        {
+            VideoCodec = SanitizeCodec(video?.Codec),
+            VideoHdr = video?.Hdr,
+            Width = video?.Width,
+            Height = video?.Height,
+            AudioCodec = SanitizeCodec(audio?.Codec),
+            AudioChannels = audio?.Channels,
+            AudioTitle = audio?.Title,
+        };
+    }
+
+    /// <summary>Drop probe placeholders so clients do not show "UNKNOWN → H.264".</summary>
+    public static string? SanitizeCodec(string? codec)
+    {
+        if (string.IsNullOrWhiteSpace(codec))
+            return null;
+        return codec.Equals("unknown", StringComparison.OrdinalIgnoreCase)
+               || codec.Equals("und", StringComparison.OrdinalIgnoreCase)
+               || codec.Equals("none", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : codec;
+    }
 
     public static MediaSourceDto MapSource(MediaSource src, bool includePath) => new()
     {

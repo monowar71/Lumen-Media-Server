@@ -42,6 +42,16 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
             psi.ArgumentList.Add("json");
             psi.ArgumentList.Add("-show_format");
             psi.ArgumentList.Add("-show_streams");
+            // HTTP TorrServer URLs need a larger probe window — headers may arrive slowly.
+            if (IsHttpUrl(path))
+            {
+                psi.ArgumentList.Add("-analyzeduration");
+                psi.ArgumentList.Add("15000000");
+                psi.ArgumentList.Add("-probesize");
+                psi.ArgumentList.Add("15000000");
+                psi.ArgumentList.Add("-rw_timeout");
+                psi.ArgumentList.Add("20000000");
+            }
             psi.ArgumentList.Add(path);
 
             using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -170,6 +180,10 @@ public sealed class FfprobeClient(ILogger<FfprobeClient> logger)
 
         return new ProbeResult(durationMs, overallBitrate, streams);
     }
+
+    private static bool IsHttpUrl(string path) =>
+        path.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Exposed for unit tests — parses ffprobe JSON into domain streams.</summary>
     internal static ProbeResult ParseForTests(string json) => Parse(json);

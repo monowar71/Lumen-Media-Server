@@ -19,6 +19,8 @@ WORKDIR /app
 ARG TARGETARCH
 # yt-dlp YouTube extraction needs a supported JS runtime (Deno >= 2.3; apt nodejs is too old).
 ARG DENO_VERSION=2.4.3
+# Bundled TorrServer (YouROK) — lazy-started on torrent playback; GPL-3.0.
+ARG TORRSERVER_VERSION=MatriX.142.2
 RUN apt-get update \
     && ARCH="${TARGETARCH:-$(dpkg --print-architecture)}" \
     && apt-get install -y --no-install-recommends \
@@ -28,8 +30,8 @@ RUN apt-get update \
         https://github.com/yt-dlp/yt-dlp/releases/download/2026.07.04/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp \
     && case "$ARCH" in \
-         amd64) DENO_ARCH=x86_64 ;; \
-         arm64) DENO_ARCH=aarch64 ;; \
+         amd64) DENO_ARCH=x86_64; TS_ARCH=amd64 ;; \
+         arm64) DENO_ARCH=aarch64; TS_ARCH=arm64 ;; \
          *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; \
        esac \
     && curl -fsSL -o /tmp/deno.zip \
@@ -37,8 +39,12 @@ RUN apt-get update \
     && unzip -o /tmp/deno.zip -d /usr/local/bin \
     && chmod a+rx /usr/local/bin/deno \
     && rm -f /tmp/deno.zip \
+    && curl -fsSL -o /usr/local/bin/torrserver \
+        "https://github.com/YouROK/TorrServer/releases/download/${TORRSERVER_VERSION}/TorrServer-linux-${TS_ARCH}" \
+    && chmod a+rx /usr/local/bin/torrserver \
     && yt-dlp --version \
     && deno --version \
+    && /usr/local/bin/torrserver --help >/dev/null 2>&1 || true \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app ./

@@ -34,6 +34,12 @@ public sealed class PlaybackSession
     public DateTimeOffset ExpiresAt { get; set; }
     /// <summary>Last playlist/segment/ping access — used for idle cleanup and throttle.</summary>
     public DateTimeOffset LastAccess { get; set; }
+    /// <summary>True when this session holds a TorrServer process lease (torrent sources).</summary>
+    public bool HoldsTorrServerLease { get; set; }
+    /// <summary>Infohash for live TorrServer stats while the session is active.</summary>
+    public string? TorrentInfoHash { get; set; }
+    /// <summary>Codecs discovered by play-time ffprobe (torrent); surfaced via ping for HUD.</summary>
+    public ProbedFormatDto? ProbedFormat { get; set; }
 }
 
 public interface IPlaybackSessionStore

@@ -84,6 +84,9 @@ public interface IMediaRepository
     /// <summary>TRACKED source with streams — used to backfill probe tags (title/disposition) on re-scan.</summary>
     Task<MediaSource?> GetTrackedSourceByPathWithStreamsAsync(string path, CancellationToken ct);
 
+    /// <summary>TRACKED source with streams — used for play-time torrent probe persistence.</summary>
+    Task<MediaSource?> GetTrackedSourceByIdWithStreamsAsync(Guid id, CancellationToken ct);
+
     Task<MediaSource?> GetSourceByIdAsync(Guid id, CancellationToken ct);
     Task<MediaSource?> GetPrimarySourceForMediaAsync(Guid mediaId, CancellationToken ct);
 
@@ -94,6 +97,7 @@ public interface IMediaRepository
     /// <summary>TRACKED sources owned by a movie or episode (for delete).</summary>
     Task<IReadOnlyList<MediaSource>> GetTrackedSourcesForMediaAsync(Guid mediaId, CancellationToken ct);
     void RemoveSource(MediaSource source);
+    void RemoveStreams(IEnumerable<MediaStream> streams);
 
     /// <summary>Tracked item with genres + artworks for metadata writes.</summary>
     Task<MediaItem?> GetTrackedForMetadataAsync(Guid id, CancellationToken ct);

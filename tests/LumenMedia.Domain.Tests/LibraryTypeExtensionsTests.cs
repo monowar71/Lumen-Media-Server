@@ -12,6 +12,9 @@ public class LibraryTypeExtensionsTests
     [InlineData(LibraryType.Series, MediaKind.Series, true)]
     [InlineData(LibraryType.Series, MediaKind.Movie, false)]
     [InlineData(LibraryType.Series, MediaKind.Episode, false)]
+    [InlineData(LibraryType.Torrent, MediaKind.Movie, true)]
+    [InlineData(LibraryType.Torrent, MediaKind.Series, true)]
+    [InlineData(LibraryType.Torrent, MediaKind.Episode, false)]
     public void Accepts_matches_library_type_to_parsed_kind(
         LibraryType libraryType,
         MediaKind kind,

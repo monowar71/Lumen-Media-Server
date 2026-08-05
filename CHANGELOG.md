@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-08-05
+
+### Added
+
+- Library type `Torrent`: scan `.torrent` files, import as Movie/Series with TMDB/TVDB metadata, play via embedded TorrServer (lazy start/stop) → ffmpeg HLS.
+- Playback `torrentStats` (seeders / peers / download speed) on decision and `POST .../ping` (ping now returns `200` + JSON).
+- Play-time `ffprobe` of TorrServer play URL when codecs are unknown; persists streams and returns `probedFormat` on ping/decision for player HUD.
+- Docker image bundles TorrServer (`MatriX.142.2`); see `NOTICE` (GPL-3.0).
+
+### Changed
+
+- `/health` and server-info report version `0.1.13`.
+- Media stream DTOs omit placeholder codecs (`unknown` / `und` / `none`).
+
 ## [0.1.12] - 2026-08-04
 
 ### Added

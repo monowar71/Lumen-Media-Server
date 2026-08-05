@@ -43,6 +43,12 @@ public sealed class RateLimitException(string message) : AppException(message)
     public override string ErrorType => "rate-limit";
 }
 
+public sealed class ServiceUnavailableException(string message) : AppException(message)
+{
+    public override int StatusCode => 503;
+    public override string ErrorType => "service-unavailable";
+}
+
 public sealed class ValidationException : AppException
 {
     public ValidationException(IReadOnlyDictionary<string, string[]> errors)

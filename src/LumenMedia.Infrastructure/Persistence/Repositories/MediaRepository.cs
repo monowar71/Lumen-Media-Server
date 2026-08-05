@@ -307,6 +307,11 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
             .Include(s => s.Streams)
             .FirstOrDefaultAsync(s => s.Path == path, ct);
 
+    public Task<MediaSource?> GetTrackedSourceByIdWithStreamsAsync(Guid id, CancellationToken ct) =>
+        db.MediaSources
+            .Include(s => s.Streams)
+            .FirstOrDefaultAsync(s => s.Id == id, ct);
+
     public Task<MediaSource?> GetSourceByIdAsync(Guid id, CancellationToken ct) =>
         db.MediaSources.AsNoTracking()
             .Include(s => s.Streams)
@@ -343,6 +348,8 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
             .ToListAsync(ct);
 
     public void RemoveSource(MediaSource source) => db.MediaSources.Remove(source);
+
+    public void RemoveStreams(IEnumerable<MediaStream> streams) => db.MediaStreams.RemoveRange(streams);
 
     public Task<MediaItem?> GetTrackedForMetadataAsync(Guid id, CancellationToken ct) =>
         db.MediaItems

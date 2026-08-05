@@ -2095,8 +2095,15 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": "No Content"
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackPingResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -3363,8 +3370,8 @@
           "status": {
             "$ref": "#/components/schemas/ImportStatus"
           },
-          "parsed": { },
-          "candidates": { },
+          "parsed": {},
+          "candidates": {},
           "createdAt": {
             "type": "string",
             "format": "date-time"
@@ -3663,7 +3670,8 @@
       "LibraryType": {
         "enum": [
           "Movies",
-          "Series"
+          "Series",
+          "Torrent"
         ],
         "type": "string"
       },
@@ -4605,6 +4613,29 @@
               "null",
               "string"
             ]
+          },
+          "torrentStats": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TorrentPlaybackStats"
+              }
+            ]
+          },
+          "isTorrentSource": {
+            "type": "boolean"
+          },
+          "probedFormat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProbedFormat"
+              }
+            ]
           }
         }
       },
@@ -5523,7 +5554,7 @@
           "role": {
             "$ref": "#/components/schemas/UserRole"
           },
-          "libraryAccess": { },
+          "libraryAccess": {},
           "allowTranscoding": {
             "type": "boolean"
           },
@@ -5548,6 +5579,102 @@
           "User"
         ],
         "type": "string"
+      },
+      "TorrentPlaybackStats": {
+        "type": "object",
+        "properties": {
+          "seeders": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "peers": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "downloadSpeedBytesPerSec": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "PlaybackPingResponse": {
+        "type": "object",
+        "properties": {
+          "torrentStats": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TorrentPlaybackStats"
+              }
+            ]
+          },
+          "probedFormat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProbedFormat"
+              }
+            ]
+          }
+        }
+      },
+      "ProbedFormat": {
+        "type": "object",
+        "properties": {
+          "videoCodec": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "videoHdr": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "width": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "height": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "audioCodec": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "audioChannels": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "audioTitle": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
       }
     }
   },
