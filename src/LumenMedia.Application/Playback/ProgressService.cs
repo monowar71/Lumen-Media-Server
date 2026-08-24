@@ -61,7 +61,7 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
     {
         limit = Math.Clamp(limit, 1, MediaQueryService.MaxPageSize);
         // Fetch extra rows so episode→series rollup / dedupe / ACL filtering still fills the page.
-        var entries = await uow.Progress.GetContinueWatchingAsync(caller.UserId, limit * 3, ct);
+        var entries = await uow.Progress.GetContinueWatchingAsync(caller.UserId, limit * 5, ct);
 
         var movieIds = entries.Where(e => e.MediaKind == MediaKind.Movie).Select(e => e.MediaId).Distinct().ToList();
         var movieSummaries = movieIds.Count > 0
@@ -105,18 +105,22 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
             if (!seenSeries.Add(episode.SeriesId))
                 continue;
 
+            var next = await ResolveSeriesNextUpAsync(episode.SeriesId, caller.UserId, ct);
+            if (next is null)
+                continue;
+
             var seriesList = await uow.Media.GetSummariesByIdsAsync([episode.SeriesId], caller.UserId, ct);
             var series = seriesList.FirstOrDefault();
             if (series is null)
                 continue;
 
-            var nextUp = MediaMapper.MapEpisodeSummary(episode, entry);
+            var nextUp = MediaMapper.MapEpisodeSummary(next.Episode, next.Progress);
             items.Add(series with
             {
-                RuntimeMs = episode.RuntimeMs,
+                RuntimeMs = next.Episode.RuntimeMs,
                 UserData = series.UserData with
                 {
-                    PlaybackPositionMs = entry.PositionMs,
+                    PlaybackPositionMs = next.Progress?.PositionMs ?? 0,
                     Watched = false,
                     NextUp = nextUp,
                 },
@@ -124,6 +128,25 @@ public sealed class ProgressService(IUnitOfWork uow, TimeProvider clock, IRealti
         }
 
         return new PagedResult<MediaItemSummary>(items, 1, limit, items.Count);
+    }
+
+    private async Task<SeriesNextUp.Candidate?> ResolveSeriesNextUpAsync(
+        Guid seriesId,
+        Guid userId,
+        CancellationToken ct)
+    {
+        var seasons = await uow.Media.GetSeasonsAsync(seriesId, ct);
+        var candidates = new List<SeriesNextUp.Candidate>();
+        foreach (var season in seasons)
+        {
+            foreach (var ep in await uow.Media.GetEpisodesAsync(season.Id, ct))
+            {
+                var progress = await uow.Progress.GetAsync(userId, ep.Id, ct);
+                candidates.Add(new SeriesNextUp.Candidate(ep, progress));
+            }
+        }
+
+        return SeriesNextUp.Select(candidates);
     }
 
     private async Task<ProgressResponse> SetWatchedAsync(Guid userId, Guid itemId, bool watched, CancellationToken ct)

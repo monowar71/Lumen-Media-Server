@@ -86,7 +86,12 @@ public sealed class JobWorker(
                         job.Report(p, $"Scanning… {p:P0}");
                         _ = SafeNotifyJobAsync(notifier, job, ct);
                     });
-                    scanResult = await scanner.ScanAsync(request.LibraryId.Value, progress, ct);
+                    var probeMedia = ParseProbeMedia(request.PayloadJson);
+                    scanResult = await scanner.ScanAsync(
+                        request.LibraryId.Value,
+                        progress,
+                        ct,
+                        new MediaScanOptions(ProbeTorrentMedia: probeMedia));
                     job.Succeed(clock.GetUtcNow(), $"Added {scanResult.Added}, updated {scanResult.Updated}, removed {scanResult.Removed}.");
                     break;
                 }
@@ -231,6 +236,22 @@ public sealed class JobWorker(
         catch (JsonException)
         {
             return (null, null, null);
+        }
+    }
+
+    private static bool ParseProbeMedia(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return doc.RootElement.TryGetProperty("probeMedia", out var el)
+                   && el.ValueKind is JsonValueKind.True;
+        }
+        catch (JsonException)
+        {
+            return false;
         }
     }
 

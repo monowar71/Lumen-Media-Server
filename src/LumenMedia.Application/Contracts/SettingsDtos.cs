@@ -53,9 +53,20 @@ public sealed record ImportSettingsDto
     public string Strategy { get; init; } = "Hardlink";
 }
 
+/// <summary>Client-facing playback UI knobs (safe to expose via <c>/server/info</c>).</summary>
+public sealed record PlaybackUiSettingsDto
+{
+    /// <summary>
+    /// Show "Next episode" when this many percent of runtime remain (from the end).
+    /// Clamped to 1–50; default 5.
+    /// </summary>
+    public int NextEpisodePromptPercentFromEnd { get; init; } = 5;
+}
+
 public sealed record ServerSettingsDto
 {
     public TranscodingSettingsDto Transcoding { get; init; } = new();
     public MetadataSettingsDto Metadata { get; init; } = new();
     public ImportSettingsDto Import { get; init; } = new();
+    public PlaybackUiSettingsDto PlaybackUi { get; init; } = new();
 }

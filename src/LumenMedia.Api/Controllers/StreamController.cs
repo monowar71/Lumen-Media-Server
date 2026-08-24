@@ -3,9 +3,11 @@ using LumenMedia.Api.Auth;
 using LumenMedia.Application.Abstractions;
 using LumenMedia.Application.Common;
 using LumenMedia.Application.Playback;
+using LumenMedia.Domain.Enums;
 using LumenMedia.Domain.Media;
 using LumenMedia.Infrastructure.Configuration;
 using LumenMedia.Infrastructure.Transcoding;
+using LumenMedia.Api.Streaming;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
@@ -20,6 +22,7 @@ public sealed class StreamController(
     IUnitOfWork uow,
     ITranscoder transcoder,
     ISubtitleConverter subtitles,
+    ITorrServerStreamProxy torrServerStreamProxy,
     IOptions<PathsOptions> paths,
     TimeProvider clock) : ControllerBase
 {
@@ -91,6 +94,8 @@ public sealed class StreamController(
     /// <summary>
     /// DirectPlay media for a playback session. Auth is the unguessable session id
     /// (capability URL) so Android / native players survive JWT access-token expiry.
+    /// Local files use <see cref="PhysicalFileResult"/>; torrent sessions proxy TorrServer
+    /// <c>/play</c> with Range forwarding (never expose TorrServer to the client).
     /// </summary>
     [AllowAnonymous]
     [HttpGet("stream/{sessionId}/source")]
@@ -101,6 +106,18 @@ public sealed class StreamController(
             return NotFound();
 
         playback.TouchSession(sessionId);
+
+        if (session.Method != PlaybackMethod.DirectPlay)
+            return NotFound();
+
+        // Torrent DirectPlay: session.SourcePath is the localhost TorrServer play URL.
+        if (torrServerStreamProxy.IsAllowedPlayUrl(session.SourcePath))
+        {
+            var sourceMeta = await uow.Media.GetSourceByIdAsync(session.MediaSourceId, ct);
+            var contentType = ContentTypeForContainer(sourceMeta?.Container ?? session.Container ?? "mkv");
+            await torrServerStreamProxy.ProxyAsync(Request, Response, session.SourcePath, contentType, ct);
+            return new EmptyResult();
+        }
 
         var source = await uow.Media.GetSourceByIdAsync(session.MediaSourceId, ct);
         if (source is null)

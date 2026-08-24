@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using LumenMedia.Application.Contracts;
 using LumenMedia.Application.Libraries;
 using LumenMedia.Infrastructure.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -120,7 +121,7 @@ public sealed class LibraryAutoScanHostedService(
         {
             await using var scope = scopeFactory.CreateAsyncScope();
             var libraries = scope.ServiceProvider.GetRequiredService<LibraryService>();
-            var job = await libraries.ScanAsync(libraryId, ct);
+            var job = await libraries.ScanAsync(libraryId, new ScanLibraryRequest(), ct);
             logger.LogInformation(
                 "Auto-scan enqueued for library {LibraryId} ({Reason}), job {JobId} state={State}",
                 libraryId, reason, job.Id, job.State);

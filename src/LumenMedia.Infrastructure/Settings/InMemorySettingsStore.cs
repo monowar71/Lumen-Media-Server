@@ -45,6 +45,7 @@ public sealed class InMemorySettingsStore : ISettingsStore
                 MinFileSizeMb = i.MinFileSizeMb,
                 Strategy = i.Strategy,
             },
+            PlaybackUi = new PlaybackUiSettingsDto(),
         };
     }
 
@@ -67,8 +68,18 @@ public sealed class InMemorySettingsStore : ISettingsStore
                     FallbackLanguage = patch.Metadata.FallbackLanguage,
                 },
                 Import = patch.Import,
+                PlaybackUi = ClampPlaybackUi(patch.PlaybackUi),
             };
             return _current;
         }
+    }
+
+    private static PlaybackUiSettingsDto ClampPlaybackUi(PlaybackUiSettingsDto? raw)
+    {
+        var pct = raw?.NextEpisodePromptPercentFromEnd ?? 5;
+        return new PlaybackUiSettingsDto
+        {
+            NextEpisodePromptPercentFromEnd = Math.Clamp(pct, 1, 50),
+        };
     }
 }

@@ -110,7 +110,26 @@ public sealed class MediaQueryService(IUnitOfWork uow, IThemeSongStore themes)
             throw new NotFoundException("Episode not found.");
 
         var progress = await uow.Progress.GetAsync(caller.UserId, episode.Id, ct);
-        return MediaMapper.MapEpisodeDetail(episode, progress, caller.IsAdmin);
+        var nextEpisode = await ResolveNextEpisodeSummaryAsync(episode, caller.UserId, ct);
+        return MediaMapper.MapEpisodeDetail(episode, progress, caller.IsAdmin, nextEpisode);
+    }
+
+    private async Task<EpisodeSummary?> ResolveNextEpisodeSummaryAsync(
+        Episode current,
+        Guid userId,
+        CancellationToken ct)
+    {
+        var seasons = await uow.Media.GetSeasonsAsync(current.SeriesId, ct);
+        var all = new List<Episode>();
+        foreach (var season in seasons)
+            all.AddRange(await uow.Media.GetEpisodesAsync(season.Id, ct));
+
+        var next = SeriesNextUp.NextAfter(current, all);
+        if (next is null)
+            return null;
+
+        var nextProgress = await uow.Progress.GetAsync(userId, next.Id, ct);
+        return MediaMapper.MapEpisodeSummary(next, nextProgress);
     }
 
     public async Task<SearchResponse> SearchAsync(string term, Caller caller, int limit, CancellationToken ct)

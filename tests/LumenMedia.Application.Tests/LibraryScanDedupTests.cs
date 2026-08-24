@@ -39,7 +39,7 @@ public class LibraryScanDedupTests
         var active = new BackgroundJob(JobType.ScanLibrary, DateTimeOffset.UtcNow, library.Id);
         _jobs.FindActiveAsync(JobType.ScanLibrary, library.Id, Arg.Any<CancellationToken>()).Returns(active);
 
-        var result = await CreateSut().ScanAsync(library.Id, default);
+        var result = await CreateSut().ScanAsync(library.Id, new Application.Contracts.ScanLibraryRequest(), default);
 
         result.Id.Should().Be(active.Id);
         await _jobs.DidNotReceive().AddAsync(Arg.Any<BackgroundJob>(), Arg.Any<CancellationToken>());
@@ -54,7 +54,7 @@ public class LibraryScanDedupTests
         _jobs.FindActiveAsync(JobType.ScanLibrary, library.Id, Arg.Any<CancellationToken>())
             .Returns((BackgroundJob?)null);
 
-        var result = await CreateSut().ScanAsync(library.Id, default);
+        var result = await CreateSut().ScanAsync(library.Id, new Application.Contracts.ScanLibraryRequest(), default);
 
         result.State.Should().Be(JobState.Queued);
         await _jobs.Received(1).AddAsync(Arg.Any<BackgroundJob>(), Arg.Any<CancellationToken>());

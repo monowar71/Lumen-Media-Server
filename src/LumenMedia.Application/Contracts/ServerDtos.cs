@@ -20,6 +20,11 @@ public sealed record ServerFeatures
 {
     public string HardwareAccel { get; init; } = "none";
     public bool Abr { get; init; }
+
+    /// <summary>
+    /// Percent of episode runtime remaining (from the end) at which clients may show "Next episode".
+    /// </summary>
+    public int NextEpisodePromptPercentFromEnd { get; init; } = 5;
 }
 
 public sealed record SearchResponse

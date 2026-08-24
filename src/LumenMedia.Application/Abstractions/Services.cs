@@ -58,9 +58,21 @@ public interface IThemeSongService
 
 public sealed record ScanResult(int Added, int Updated, int Removed);
 
+/// <summary>Options for a library scan job.</summary>
+public sealed record MediaScanOptions(
+    /// <summary>
+    /// When true on a Torrent library, start TorrServer and ffprobe each video entry
+    /// that still lacks codecs (slow / needs peers). Ignored for Movies/Series.
+    /// </summary>
+    bool ProbeTorrentMedia = false);
+
 public interface IMediaScanner
 {
-    Task<ScanResult> ScanAsync(Guid libraryId, IProgress<double>? progress, CancellationToken ct);
+    Task<ScanResult> ScanAsync(
+        Guid libraryId,
+        IProgress<double>? progress,
+        CancellationToken ct,
+        MediaScanOptions? options = null);
 }
 
 public sealed record ImportResult(bool Success, Guid? MediaItemId, string? Error);

@@ -45,4 +45,24 @@ public static class SeriesNextUp
 
         return null;
     }
+
+    /// <summary>
+    /// Chronological next episode after <paramref name="current"/> (S1+ first, specials last).
+    /// </summary>
+    public static Episode? NextAfter(Episode current, IReadOnlyList<Episode> all)
+    {
+        if (all.Count == 0)
+            return null;
+
+        var ordered = all
+            .OrderBy(e => e.SeasonNumber == 0 ? int.MaxValue : e.SeasonNumber)
+            .ThenBy(e => e.EpisodeNumber)
+            .ToList();
+
+        var idx = ordered.FindIndex(e => e.Id == current.Id);
+        if (idx < 0 || idx + 1 >= ordered.Count)
+            return null;
+
+        return ordered[idx + 1];
+    }
 }

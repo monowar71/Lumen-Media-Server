@@ -19,6 +19,9 @@ public sealed class FileSystemScanner(
     IUnitOfWork uow,
     INameParser nameParser,
     ITorrentMetadataParser torrentParser,
+    ITorrentPlaybackResolver torrentPlayback,
+    ITorrServerProcess torrServerProcess,
+    IMediaProbe mediaProbe,
     FfprobeClient ffprobe,
     TimeProvider clock,
     ExternalHistoryPromoter externalHistoryPromoter,
@@ -34,14 +37,21 @@ public sealed class FileSystemScanner(
         "sample", "trailer", "preview", "rarbg.com", "rarbg",
     };
 
-    public async Task<ScanResult> ScanAsync(Guid libraryId, IProgress<double>? progress, CancellationToken ct)
+    private const int ScanProbeMaxAttempts = 3;
+    private static readonly TimeSpan ScanProbeInitialDelay = TimeSpan.FromSeconds(2);
+
+    public async Task<ScanResult> ScanAsync(
+        Guid libraryId,
+        IProgress<double>? progress,
+        CancellationToken ct,
+        MediaScanOptions? options = null)
     {
         var library = await uow.Libraries.GetByIdAsync(libraryId, ct);
         if (library is null)
             return new ScanResult(0, 0, 0);
 
         if (library.Type == LibraryType.Torrent)
-            return await ScanTorrentsAsync(library, progress, ct);
+            return await ScanTorrentsAsync(library, progress, ct, options?.ProbeTorrentMedia == true);
 
         return await ScanVideoFilesAsync(library, progress, ct);
     }
@@ -123,96 +133,140 @@ public sealed class FileSystemScanner(
     private async Task<ScanResult> ScanTorrentsAsync(
         Library library,
         IProgress<double>? progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        bool probeMedia)
     {
         var libraryId = library.Id;
         var torrents = EnumerateTorrentFiles(library.Paths.Select(p => p.Path)).ToList();
         var seriesCache = new Dictionary<string, Series>(StringComparer.OrdinalIgnoreCase);
         var added = 0;
+        var updated = 0;
         var skippedWrongKind = 0;
+        var leased = false;
 
-        for (var i = 0; i < torrents.Count; i++)
+        if (probeMedia)
         {
-            ct.ThrowIfCancellationRequested();
-            var torrentFile = torrents[i];
-            var roots = library.Paths.Select(p => p.Path).ToList();
-            if (!PathSafety.TryResolveUnderRoots(torrentFile, roots, out var safeTorrent))
-            {
-                logger.LogWarning("Skipping {File}: real path escapes library roots", torrentFile);
-                progress?.Report(torrents.Count == 0 ? 1 : (i + 1) / (double)torrents.Count);
-                continue;
-            }
-
-            TorrentMetadata meta;
+            torrServerProcess.AcquireLease();
+            leased = true;
             try
             {
-                meta = torrentParser.ParseFile(safeTorrent);
+                await torrServerProcess.EnsureRunningAsync(ct);
+                logger.LogInformation(
+                    "Deep torrent scan for library {LibraryId}: TorrServer ready, probing codecs",
+                    libraryId);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogWarning(ex, "Failed to parse torrent {File}", safeTorrent);
-                progress?.Report((i + 1) / (double)torrents.Count);
-                continue;
+                logger.LogWarning(ex, "Deep scan: TorrServer failed to start; continuing without probes");
+                torrServerProcess.ReleaseLease();
+                leased = false;
+                probeMedia = false;
             }
+        }
 
-            var videoEntries = meta.Files
-                .Where(IsVideoTorrentEntry)
-                .Where(f => !IsSampleOrTrailer(f.Path))
-                .ToList();
-
-            foreach (var entry in videoEntries)
+        try
+        {
+            for (var i = 0; i < torrents.Count; i++)
             {
-                var sourcePath = $"{safeTorrent}#{entry.Index}";
-                var existing = await uow.Media.FindSourceByPathAsync(sourcePath, ct);
-                if (existing is not null)
-                    continue;
-
-                var parseName = Path.GetFileName(entry.Path);
-                if (string.IsNullOrWhiteSpace(parseName))
-                    parseName = Path.GetFileNameWithoutExtension(safeTorrent);
-                var parsed = nameParser.Parse(parseName);
-                if (!library.Type.Accepts(parsed.Kind))
+                ct.ThrowIfCancellationRequested();
+                var torrentFile = torrents[i];
+                var roots = library.Paths.Select(p => p.Path).ToList();
+                if (!PathSafety.TryResolveUnderRoots(torrentFile, roots, out var safeTorrent))
                 {
-                    skippedWrongKind++;
+                    logger.LogWarning("Skipping {File}: real path escapes library roots", torrentFile);
+                    progress?.Report(torrents.Count == 0 ? 1 : (i + 1) / (double)torrents.Count);
                     continue;
                 }
 
+                TorrentMetadata meta;
                 try
                 {
-                    var container = Path.GetExtension(entry.Path).TrimStart('.').ToLowerInvariant();
-                    if (string.IsNullOrEmpty(container))
-                        container = "mkv";
-                    var mtime = File.Exists(safeTorrent)
-                        ? new DateTimeOffset(File.GetLastWriteTimeUtc(safeTorrent), TimeSpan.Zero)
-                        : clock.GetUtcNow();
-
-                    var source = MediaSource.CreateTorrent(
-                        safeTorrent,
-                        meta.InfoHash,
-                        entry.Index,
-                        entry.Path,
-                        container,
-                        entry.Length,
-                        mtime,
-                        clock.GetUtcNow());
-                    // No ffprobe at scan — empty codec until play-time probe; clients hide "unknown".
-                    source.AddStream(new MediaStream(StreamKind.Video, 0));
-
-                    var imported = parsed.Kind == MediaKind.Movie
-                        ? await ImportTorrentMovieAsync(library.Id, source, parsed, ct)
-                        : await ImportTorrentEpisodeAsync(library.Id, source, parsed, seriesCache, ct);
-                    if (imported)
-                        added++;
+                    meta = torrentParser.ParseFile(safeTorrent);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    uow.DiscardChanges();
-                    seriesCache.Clear();
-                    logger.LogWarning(ex, "Failed to import torrent entry {File}#{Index}", safeTorrent, entry.Index);
+                    logger.LogWarning(ex, "Failed to parse torrent {File}", safeTorrent);
+                    progress?.Report((i + 1) / (double)torrents.Count);
+                    continue;
                 }
-            }
 
-            progress?.Report((i + 1) / (double)torrents.Count);
+                var videoEntries = meta.Files
+                    .Where(IsVideoTorrentEntry)
+                    .Where(f => !IsSampleOrTrailer(f.Path))
+                    .ToList();
+
+                foreach (var entry in videoEntries)
+                {
+                    var sourcePath = $"{safeTorrent}#{entry.Index}";
+                    var existing = await uow.Media.FindSourceByPathAsync(sourcePath, ct);
+                    if (existing is not null)
+                    {
+                        if (probeMedia
+                            && await TryProbeExistingTorrentSourceAsync(
+                                sourcePath, safeTorrent, meta.InfoHash, entry.Index, ct))
+                        {
+                            updated++;
+                        }
+
+                        continue;
+                    }
+
+                    var parseName = Path.GetFileName(entry.Path);
+                    if (string.IsNullOrWhiteSpace(parseName))
+                        parseName = Path.GetFileNameWithoutExtension(safeTorrent);
+                    var parsed = nameParser.Parse(parseName);
+                    if (!library.Type.Accepts(parsed.Kind))
+                    {
+                        skippedWrongKind++;
+                        continue;
+                    }
+
+                    try
+                    {
+                        var container = Path.GetExtension(entry.Path).TrimStart('.').ToLowerInvariant();
+                        if (string.IsNullOrEmpty(container))
+                            container = "mkv";
+                        var mtime = File.Exists(safeTorrent)
+                            ? new DateTimeOffset(File.GetLastWriteTimeUtc(safeTorrent), TimeSpan.Zero)
+                            : clock.GetUtcNow();
+
+                        var source = MediaSource.CreateTorrent(
+                            safeTorrent,
+                            meta.InfoHash,
+                            entry.Index,
+                            entry.Path,
+                            container,
+                            entry.Length,
+                            mtime,
+                            clock.GetUtcNow());
+                        // Empty codec until probe (play-time or deep scan); clients hide "unknown".
+                        source.AddStream(new MediaStream(StreamKind.Video, 0));
+
+                        if (probeMedia)
+                            await TryApplyTorrentProbeAsync(
+                                source, safeTorrent, meta.InfoHash, entry.Index, ct);
+
+                        var imported = parsed.Kind == MediaKind.Movie
+                            ? await ImportTorrentMovieAsync(library.Id, source, parsed, ct)
+                            : await ImportTorrentEpisodeAsync(library.Id, source, parsed, seriesCache, ct);
+                        if (imported)
+                            added++;
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        uow.DiscardChanges();
+                        seriesCache.Clear();
+                        logger.LogWarning(ex, "Failed to import torrent entry {File}#{Index}", safeTorrent, entry.Index);
+                    }
+                }
+
+                progress?.Report((i + 1) / (double)torrents.Count);
+            }
+        }
+        finally
+        {
+            if (leased)
+                torrServerProcess.ReleaseLease();
         }
 
         library = await uow.Libraries.GetByIdAsync(libraryId, ct) ?? library;
@@ -223,8 +277,143 @@ public sealed class FileSystemScanner(
                 "Torrent library {LibraryId} skipped {Skipped} non-matching entries",
                 libraryId,
                 skippedWrongKind);
-        return new ScanResult(added, 0, 0);
+        return new ScanResult(added, updated, 0);
     }
+
+    /// <summary>
+    /// Probe an already-imported torrent source that still lacks real codecs.
+    /// </summary>
+    private async Task<bool> TryProbeExistingTorrentSourceAsync(
+        string sourcePath,
+        string torrentPath,
+        string infoHash,
+        int fileIndex,
+        CancellationToken ct)
+    {
+        var source = await uow.Media.GetTrackedSourceByPathWithStreamsAsync(sourcePath, ct);
+        if (source is null || !source.NeedsStreamProbe())
+            return false;
+
+        var probe = await ProbeTorrentPlayUrlAsync(torrentPath, infoHash, fileIndex, ct);
+        if (probe is null || !HasUsableVideo(probe))
+            return false;
+
+        var previous = source.Streams.ToList();
+        if (previous.Count > 0)
+            uow.Media.RemoveStreams(previous);
+
+        ApplyProbeResult(source, probe);
+        await uow.SaveChangesAsync(ct);
+        logger.LogInformation(
+            "Deep scan probed existing torrent source {Path}: video={Codec}",
+            sourcePath,
+            source.Streams.FirstOrDefault(s => s.Kind == StreamKind.Video)?.Codec);
+        return true;
+    }
+
+    /// <summary>
+    /// Apply TorrServer+ffprobe to a new in-memory torrent source before import.
+    /// </summary>
+    private async Task<bool> TryApplyTorrentProbeAsync(
+        MediaSource source,
+        string torrentPath,
+        string infoHash,
+        int fileIndex,
+        CancellationToken ct)
+    {
+        var probe = await ProbeTorrentPlayUrlAsync(torrentPath, infoHash, fileIndex, ct);
+        if (probe is null || !HasUsableVideo(probe))
+            return false;
+
+        ApplyProbeResult(source, probe);
+        return true;
+    }
+
+    private async Task<MediaProbeResult?> ProbeTorrentPlayUrlAsync(
+        string torrentPath,
+        string infoHash,
+        int fileIndex,
+        CancellationToken ct)
+    {
+        string playUrl;
+        try
+        {
+            playUrl = await torrentPlayback.ResolvePlayUrlAsync(torrentPath, infoHash, fileIndex, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogDebug(ex, "Deep scan: could not resolve play URL for {Torrent}#{Index}", torrentPath, fileIndex);
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(playUrl))
+            return null;
+
+        await Task.Delay(ScanProbeInitialDelay, ct);
+
+        for (var attempt = 0; attempt < ScanProbeMaxAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            using var attemptCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            attemptCts.CancelAfter(TimeSpan.FromSeconds(25));
+
+            MediaProbeResult? probe;
+            try
+            {
+                probe = await mediaProbe.ProbeAsync(playUrl, attemptCts.Token);
+            }
+            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+            {
+                probe = null;
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogDebug(
+                    ex,
+                    "Deep scan ffprobe attempt {Attempt} failed for {Torrent}#{Index}",
+                    attempt + 1,
+                    torrentPath,
+                    fileIndex);
+                probe = null;
+            }
+
+            if (probe is not null && HasUsableVideo(probe))
+                return probe;
+
+            await Task.Delay(TimeSpan.FromSeconds(2 * (attempt + 1)), ct);
+        }
+
+        return null;
+    }
+
+    private static bool HasUsableVideo(MediaProbeResult probe) =>
+        probe.Streams.Any(s =>
+            s.Kind == StreamKind.Video
+            && !string.IsNullOrWhiteSpace(s.Codec)
+            && !s.Codec.Equals("unknown", StringComparison.OrdinalIgnoreCase));
+
+    private static void ApplyProbeResult(MediaSource source, MediaProbeResult probe)
+    {
+        var mapped = probe.Streams.Select(MapProbedStream).ToList();
+        source.ReplaceStreams(mapped);
+        source.SetProbeInfo(probe.DurationMs, probe.OverallBitrateKbps);
+    }
+
+    private static MediaStream MapProbedStream(ProbedMediaStream s) =>
+        new(s.Kind, s.StreamIndex)
+        {
+            Codec = s.Codec,
+            Profile = s.Profile,
+            Language = s.Language,
+            Title = s.Title,
+            IsDefault = s.IsDefault,
+            IsForced = s.IsForced,
+            Width = s.Width,
+            Height = s.Height,
+            Channels = s.Channels,
+            Hdr = s.Hdr,
+            SubtitleFormat = s.SubtitleFormat ?? (s.Kind == StreamKind.Subtitle ? s.Codec : null),
+        };
 
     private async Task<bool> ImportTorrentMovieAsync(
         Guid libraryId,

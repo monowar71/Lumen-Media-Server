@@ -1,4 +1,5 @@
 using LumenMedia.Api.OpenApi;
+using LumenMedia.Api.Streaming;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -36,6 +37,13 @@ public static class DependencyInjection
         });
 
         services.AddSingleton<IRealtimeNotifier, SignalRRealtimeNotifier>();
+        services.AddSingleton<ITorrServerStreamProxy, TorrServerStreamProxy>();
+        // Long-lived streaming client for torrent DirectPlay Range proxy.
+        services.AddHttpClient(TorrServerStreamProxy.HttpClientName, client =>
+        {
+            client.Timeout = Timeout.InfiniteTimeSpan;
+            client.DefaultRequestHeaders.UserAgent.ParseAdd("LumenMedia/0.1");
+        });
 
         // Web client (Vite) and other browsers cannot call the API without CORS.
         // Cors:AllowedOrigins (array) restricts browsers to known origins. In Production

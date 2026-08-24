@@ -47,6 +47,15 @@ public sealed record RefreshLibraryMetadataRequest
     public string? PreferredLanguage { get; init; }
 }
 
+/// <summary>Optional body for <c>POST /libraries/{id}/scan</c>.</summary>
+public sealed record ScanLibraryRequest
+{
+    /// <summary>
+    /// Torrent libraries only: probe codecs via TorrServer during the scan (needs peers; slower).
+    /// </summary>
+    public bool ProbeMedia { get; init; }
+}
+
 public sealed record LibraryMetadataRefreshAccepted
 {
     public required Guid LibraryId { get; init; }

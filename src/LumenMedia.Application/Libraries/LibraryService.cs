@@ -98,7 +98,7 @@ public sealed class LibraryService(
         await uow.SaveChangesAsync(ct);
     }
 
-    public async Task<JobDto> ScanAsync(Guid id, CancellationToken ct)
+    public async Task<JobDto> ScanAsync(Guid id, ScanLibraryRequest request, CancellationToken ct)
     {
         var lib = await uow.Libraries.GetByIdAsync(id, ct)
                   ?? throw new NotFoundException("Library not found.");
@@ -109,7 +109,8 @@ public sealed class LibraryService(
             return JobMapper.Map(active);
 
         var now = clock.GetUtcNow();
-        var payload = JsonSerializer.Serialize(new { libraryId = lib.Id });
+        var probeMedia = request.ProbeMedia && lib.Type == LibraryType.Torrent;
+        var payload = JsonSerializer.Serialize(new { libraryId = lib.Id, probeMedia });
         var job = new BackgroundJob(JobType.ScanLibrary, now, lib.Id, payload);
         await uow.Jobs.AddAsync(job, ct);
         await uow.SaveChangesAsync(ct);

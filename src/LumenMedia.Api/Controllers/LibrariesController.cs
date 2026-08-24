@@ -46,14 +46,17 @@ public sealed class LibrariesController(LibraryService libraries, MediaQueryServ
     [HttpPost("{id:guid}/scan")]
     [Authorize(Policy = "Admin")]
     [ProducesResponseType<JobDto>(StatusCodes.Status202Accepted)]
-    public async Task<ActionResult<JobDto>> Scan(Guid id, CancellationToken ct)
+    public async Task<ActionResult<JobDto>> Scan(
+        Guid id,
+        [FromBody] ScanLibraryRequest? request,
+        CancellationToken ct)
     {
-        var job = await libraries.ScanAsync(id, ct);
+        var job = await libraries.ScanAsync(id, request ?? new ScanLibraryRequest(), ct);
         return Accepted(job);
     }
 
     /// <summary>
-    /// Enqueue metadata enrichment for items in the library.
+    /// Enqueue metadata fetch (posters, descriptions, cast) for items in the library.
     /// Optional body: mode (Missing|Matched|All) and preferredLanguage.
     /// </summary>
     [HttpPost("{id:guid}/refresh-metadata")]

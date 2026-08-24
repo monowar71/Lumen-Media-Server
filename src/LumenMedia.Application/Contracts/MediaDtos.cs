@@ -245,4 +245,6 @@ public sealed record EpisodeDetail
     public ArtworkUrls Artwork { get; init; } = new();
     public IReadOnlyList<MediaSourceDto> MediaSources { get; init; } = [];
     public UserDataDto UserData { get; init; } = new();
+    /// <summary>Chronological next episode in the series, when one exists.</summary>
+    public EpisodeSummary? NextEpisode { get; init; }
 }

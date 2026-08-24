@@ -74,6 +74,13 @@ public sealed class SettingsService(
                 TvdbApiKey = null,
                 TvdbPin = null,
             },
+            PlaybackUi = new PlaybackUiSettingsDto
+            {
+                NextEpisodePromptPercentFromEnd = Math.Clamp(
+                    raw.PlaybackUi.NextEpisodePromptPercentFromEnd,
+                    1,
+                    50),
+            },
         };
     }
 }

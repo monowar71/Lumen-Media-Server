@@ -213,7 +213,11 @@ public static class MediaMapper
         UserData = MapUserData(progress),
     };
 
-    public static EpisodeDetail MapEpisodeDetail(Episode e, PlaybackProgress? progress, bool includePath) => new()
+    public static EpisodeDetail MapEpisodeDetail(
+        Episode e,
+        PlaybackProgress? progress,
+        bool includePath,
+        EpisodeSummary? nextEpisode = null) => new()
     {
         Id = e.Id,
         SeriesId = e.SeriesId,
@@ -227,5 +231,6 @@ public static class MediaMapper
         Artwork = new ArtworkUrls { Thumb = ArtworkUrlBuilder.ItemArtwork(e.Id, ArtworkKind.Thumb) },
         MediaSources = e.Sources.Select(s => MapSource(s, includePath)).ToList(),
         UserData = MapUserData(progress),
+        NextEpisode = nextEpisode,
     };
 }

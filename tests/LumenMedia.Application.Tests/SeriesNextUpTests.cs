@@ -89,4 +89,36 @@ public sealed class SeriesNextUpTests
         };
         SeriesNextUp.Select(list).Should().BeNull();
     }
+
+    [Fact]
+    public void NextAfter_returns_following_episode_in_season()
+    {
+        var e1 = Ep(Season1, 1, 1);
+        var e2 = Ep(Season1, 1, 2);
+        SeriesNextUp.NextAfter(e1, [e1, e2])!.Id.Should().Be(e2.Id);
+    }
+
+    [Fact]
+    public void NextAfter_crosses_to_next_season()
+    {
+        var season2 = Guid.CreateVersion7();
+        var e1 = Ep(Season1, 1, 1);
+        var e2 = Ep(season2, 2, 1);
+        SeriesNextUp.NextAfter(e1, [e1, e2])!.Id.Should().Be(e2.Id);
+    }
+
+    [Fact]
+    public void NextAfter_returns_null_at_end()
+    {
+        var e1 = Ep(Season1, 1, 1);
+        SeriesNextUp.NextAfter(e1, [e1]).Should().BeNull();
+    }
+
+    [Fact]
+    public void NextAfter_puts_specials_after_regular()
+    {
+        var special = Ep(Season0, 0, 1);
+        var e1 = Ep(Season1, 1, 1);
+        SeriesNextUp.NextAfter(e1, [special, e1])!.Id.Should().Be(special.Id);
+    }
 }

@@ -54,9 +54,7 @@ public sealed class PlaybackService(
         if (reasonOverride is not null)
             decision = decision with { Method = PlaybackMethod.Transcode, Reason = reasonOverride };
 
-        // Force HLS for torrent sources until we have a real probe (no DirectPlay of TorrServer URLs to clients).
-        if (source.IsTorrent && decision.Method == PlaybackMethod.DirectPlay)
-            decision = decision with { Method = PlaybackMethod.Transcode, Reason = "TorrentStream" };
+        decision = ApplyTorrentPlaybackGuard(source, decision);
 
         if (decision.Method == PlaybackMethod.Transcode && user is { AllowTranscoding: false })
             throw new ForbiddenException("Transcoding is disabled for this user.");
@@ -193,6 +191,8 @@ public sealed class PlaybackService(
                 Reason = decision.ToneMapActive ? decision.Reason : reasonOverride,
             };
         }
+
+        decision = ApplyTorrentPlaybackGuard(source, decision);
 
         if (decision.Method == PlaybackMethod.Transcode && user is { AllowTranscoding: false })
             throw new ForbiddenException("Transcoding is disabled for this user.");
@@ -417,6 +417,32 @@ public sealed class PlaybackService(
             return await ResolveTorrentStreamUrlAsync(source, ct);
         return await ResolveSafeSourcePathAsync(source, ct);
     }
+
+    /// <summary>
+    /// Unprobed torrents cannot DirectPlay (no trusted codecs).
+    /// Progressive Matroska over TorrServer often fails in ExoPlayer/MSE
+    /// (<c>bufferAddCodecError</c>); remux to fMP4/HLS instead. Keep DirectPlay
+    /// only for mp4-family containers after a successful probe.
+    /// DirectStream remux via TorrServer HTTP remains allowed without a probe.
+    /// </summary>
+    public static PlaybackDecisionResult ApplyTorrentPlaybackGuard(
+        MediaSource source,
+        PlaybackDecisionResult decision)
+    {
+        if (!source.IsTorrent)
+            return decision;
+        if (decision.Method == PlaybackMethod.DirectPlay && source.NeedsStreamProbe())
+            return decision with { Method = PlaybackMethod.Transcode, Reason = "TorrentStream" };
+        if (decision.Method == PlaybackMethod.DirectPlay && !IsDirectPlaySafeTorrentContainer(source.Container))
+            return decision with { Method = PlaybackMethod.DirectStream, Reason = "TorrentRemux" };
+        return decision;
+    }
+
+    private static bool IsDirectPlaySafeTorrentContainer(string? container) =>
+        !string.IsNullOrWhiteSpace(container)
+        && (container.Equals("mp4", StringComparison.OrdinalIgnoreCase)
+            || container.Equals("m4v", StringComparison.OrdinalIgnoreCase)
+            || container.Equals("mov", StringComparison.OrdinalIgnoreCase));
 
     private async Task<string> ResolveTorrentStreamUrlAsync(MediaSource source, CancellationToken ct)
     {

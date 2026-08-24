@@ -975,6 +975,46 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ScanLibraryRequest"
+                  }
+                ]
+              }
+            },
+            "text/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ScanLibraryRequest"
+                  }
+                ]
+              }
+            },
+            "application/*+json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ScanLibraryRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "description": "Accepted",
@@ -3092,6 +3132,16 @@
           },
           "userData": {
             "$ref": "#/components/schemas/UserDataDto"
+          },
+          "nextEpisode": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/EpisodeSummary"
+              }
+            ]
           }
         }
       },
@@ -4778,6 +4828,15 @@
           }
         }
       },
+      "ScanLibraryRequest": {
+        "type": "object",
+        "properties": {
+          "probeMedia": {
+            "type": "boolean",
+            "description": "Torrent libraries only: probe codecs via TorrServer during the scan (needs peers; slower)."
+          }
+        }
+      },
       "RefreshRequest": {
         "required": [
           "refreshToken"
@@ -5055,6 +5114,14 @@
           },
           "abr": {
             "type": "boolean"
+          },
+          "nextEpisodePromptPercentFromEnd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },
@@ -5089,6 +5156,22 @@
           },
           "import": {
             "$ref": "#/components/schemas/ImportSettingsDto"
+          },
+          "playbackUi": {
+            "$ref": "#/components/schemas/PlaybackUiSettingsDto"
+          }
+        }
+      },
+      "PlaybackUiSettingsDto": {
+        "type": "object",
+        "properties": {
+          "nextEpisodePromptPercentFromEnd": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
           }
         }
       },

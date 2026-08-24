@@ -17,7 +17,9 @@ public sealed class ProgressRepository(LumenMediaDbContext db) : IProgressReposi
 
     public async Task<IReadOnlyList<PlaybackProgress>> GetContinueWatchingAsync(Guid userId, int limit, CancellationToken ct) =>
         await db.Progress.AsNoTracking()
-            .Where(p => p.UserId == userId && !p.Watched && p.PositionMs > 0)
+            .Where(p => p.UserId == userId && (
+                (p.MediaKind == MediaKind.Movie && !p.Watched && p.PositionMs > 0) ||
+                (p.MediaKind == MediaKind.Episode && (p.Watched || p.PositionMs > 0))))
             .OrderByDescending(p => p.UpdatedAt)
             .Take(limit)
             .ToListAsync(ct);

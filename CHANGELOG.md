@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-08-24
+
+### Added
+
+- Series Continue Watching: after finishing an episode, keep the series on the home row with `userData.nextUp` from `SeriesNextUp` (in-progress or first unwatched). Fully watched series are omitted.
+- `EpisodeDetail.nextEpisode` (chronological next) and `playbackUi.nextEpisodePromptPercentFromEnd` (1–50, default 5), also exposed on `GET /server/info` → `features.nextEpisodePromptPercentFromEnd`.
+- Torrent DirectPlay: after play-time probe, compatible **mp4/m4v/mov** sources stream via `/stream/{session}/source` proxying TorrServer `/play` with HTTP Range. Probed **mkv** torrents use DirectStream remux instead (progressive Matroska over TorrServer breaks ExoPlayer with `bufferAddCodecError`). Unprobed torrents still use Transcode (`TorrentStream`).
+- Optional deep torrent scan: `POST /libraries/{id}/scan` body `{ "probeMedia": true }` runs TorrServer + ffprobe during scan for entries without codecs (ignored for Movies/Series; auto-scan stays off).
+
+### Changed
+
+- `/health` and server-info report version `0.1.14`.
+
 ## [0.1.13] - 2026-08-05
 
 ### Added

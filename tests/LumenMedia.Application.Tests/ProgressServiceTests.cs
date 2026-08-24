@@ -128,4 +128,93 @@ public sealed class ProgressServiceTests
         result.Watched.Should().BeFalse();
         stored.Watched.Should().BeFalse();
     }
+
+    [Fact]
+    public async Task ContinueWatching_includes_series_after_episode_marked_watched()
+    {
+        var userId = Guid.CreateVersion7();
+        var now = DateTimeOffset.UtcNow;
+        var libraryId = Guid.CreateVersion7();
+        var series = new Series(libraryId, "Resident Alien", now);
+        var season = new Season(series.Id, 1);
+        var ep1 = new Episode(series.Id, season.Id, 1, 1, now);
+        var ep2 = new Episode(series.Id, season.Id, 1, 2, now);
+
+        var watched = new PlaybackProgress(userId, ep1.Id, MediaKind.Episode, now);
+        watched.SetWatched(true, now);
+
+        var media = Substitute.For<IMediaRepository>();
+        media.GetEpisodeAsync(ep1.Id, Arg.Any<CancellationToken>()).Returns(ep1);
+        media.GetByIdAsync(series.Id, Arg.Any<CancellationToken>()).Returns(series);
+        media.GetSeasonsAsync(series.Id, Arg.Any<CancellationToken>()).Returns([season]);
+        media.GetEpisodesAsync(season.Id, Arg.Any<CancellationToken>()).Returns([ep1, ep2]);
+        media.GetSummariesByIdsAsync(
+                Arg.Any<IReadOnlyCollection<Guid>>(),
+                userId,
+                Arg.Any<CancellationToken>())
+            .Returns(
+            [
+                new MediaItemSummary
+                {
+                    Id = series.Id,
+                    Kind = MediaKind.Series,
+                    Title = series.Title,
+                    Artwork = new ArtworkUrls(),
+                    UserData = new UserDataDto(),
+                    AddedAt = now,
+                },
+            ]);
+
+        var progressRepo = Substitute.For<IProgressRepository>();
+        progressRepo.GetContinueWatchingAsync(userId, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([watched]);
+        progressRepo.GetAsync(userId, ep1.Id, Arg.Any<CancellationToken>()).Returns(watched);
+        progressRepo.GetAsync(userId, ep2.Id, Arg.Any<CancellationToken>()).Returns((PlaybackProgress?)null);
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Media.Returns(media);
+        uow.Progress.Returns(progressRepo);
+
+        var sut = new ProgressService(uow, TimeProvider.System, Substitute.For<IRealtimeNotifier>());
+        var result = await sut.ContinueWatchingAsync(TestCaller(userId), limit: 20, default);
+
+        result.Items.Should().ContainSingle();
+        result.Items[0].Id.Should().Be(series.Id);
+        result.Items[0].UserData.NextUp!.Id.Should().Be(ep2.Id);
+        result.Items[0].UserData.PlaybackPositionMs.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task ContinueWatching_skips_fully_watched_series()
+    {
+        var userId = Guid.CreateVersion7();
+        var now = DateTimeOffset.UtcNow;
+        var libraryId = Guid.CreateVersion7();
+        var series = new Series(libraryId, "Done Show", now);
+        var season = new Season(series.Id, 1);
+        var ep1 = new Episode(series.Id, season.Id, 1, 1, now);
+
+        var watched = new PlaybackProgress(userId, ep1.Id, MediaKind.Episode, now);
+        watched.SetWatched(true, now);
+
+        var media = Substitute.For<IMediaRepository>();
+        media.GetEpisodeAsync(ep1.Id, Arg.Any<CancellationToken>()).Returns(ep1);
+        media.GetByIdAsync(series.Id, Arg.Any<CancellationToken>()).Returns(series);
+        media.GetSeasonsAsync(series.Id, Arg.Any<CancellationToken>()).Returns([season]);
+        media.GetEpisodesAsync(season.Id, Arg.Any<CancellationToken>()).Returns([ep1]);
+
+        var progressRepo = Substitute.For<IProgressRepository>();
+        progressRepo.GetContinueWatchingAsync(userId, Arg.Any<int>(), Arg.Any<CancellationToken>())
+            .Returns([watched]);
+        progressRepo.GetAsync(userId, ep1.Id, Arg.Any<CancellationToken>()).Returns(watched);
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Media.Returns(media);
+        uow.Progress.Returns(progressRepo);
+
+        var sut = new ProgressService(uow, TimeProvider.System, Substitute.For<IRealtimeNotifier>());
+        var result = await sut.ContinueWatchingAsync(TestCaller(userId), limit: 20, default);
+
+        result.Items.Should().BeEmpty();
+    }
 }

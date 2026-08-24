@@ -46,6 +46,7 @@ public sealed class HealthController(IUnitOfWork uow, SettingsService settings) 
             {
                 HardwareAccel = current.Transcoding.HardwareAccel,
                 Abr = current.Transcoding.AbrEnabled,
+                NextEpisodePromptPercentFromEnd = current.PlaybackUi.NextEpisodePromptPercentFromEnd,
             },
         });
     }
