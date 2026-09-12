@@ -359,7 +359,13 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
 
     public async Task<IReadOnlyList<Guid>> ListIdsMissingMetadataAsync(Guid libraryId, CancellationToken ct) =>
         await db.MediaItems.AsNoTracking()
-            .Where(m => m.LibraryId == libraryId && (m.Overview == null || m.TmdbId == null))
+            .Where(m => m.LibraryId == libraryId && (
+                m.Overview == null
+                || m.TmdbId == null
+                // Matched series keep overview/tmdbId after scan; new episodes stay bare until
+                // FetchMetadata runs again — treat untitled episodes as still-missing metadata.
+                || ((m.TmdbId != null || m.TvdbId != null)
+                    && db.Episodes.Any(e => e.SeriesId == m.Id && e.Title == null))))
             .OrderBy(m => m.SortTitle)
             .Select(m => m.Id)
             .ToListAsync(ct);

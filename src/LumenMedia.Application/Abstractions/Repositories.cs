@@ -102,7 +102,10 @@ public interface IMediaRepository
     /// <summary>Tracked item with genres + artworks for metadata writes.</summary>
     Task<MediaItem?> GetTrackedForMetadataAsync(Guid id, CancellationToken ct);
 
-    /// <summary>Item ids in a library that still need metadata (no overview / no TMDB id).</summary>
+    /// <summary>
+    /// Item ids in a library that still need metadata: no overview / no TMDB id,
+    /// or a matched series that still has episodes without a title (new files after last enrich).
+    /// </summary>
     Task<IReadOnlyList<Guid>> ListIdsMissingMetadataAsync(Guid libraryId, CancellationToken ct);
 
     /// <summary>All movie/series item ids in a library (for full metadata refresh).</summary>
