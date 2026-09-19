@@ -609,6 +609,7 @@ public sealed class PlaybackService(
                 Codec = MediaMapper.SanitizeCodec(s.Codec),
                 Channels = s.Channels,
                 IsDefault = s.IsDefault,
+                StreamIndex = s.StreamIndex,
             }).ToList();
 
         var subtitles = source.Streams

@@ -69,6 +69,8 @@ public sealed record AudioStreamOption
     public string? Codec { get; init; }
     public int? Channels { get; init; }
     public bool IsDefault { get; init; }
+    /// <summary>ffprobe container stream index; native clients use it to pick DirectPlay tracks.</summary>
+    public int? StreamIndex { get; init; }
 }
 
 public sealed record SubtitleStreamOption
