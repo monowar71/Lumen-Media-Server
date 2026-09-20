@@ -445,6 +445,8 @@ public sealed class MediaRepository(LumenMediaDbContext db) : IMediaRepository
 
     public void RemoveEpisode(Episode episode) => db.Episodes.Remove(episode);
 
+    public void RemoveSeason(Season season) => db.Seasons.Remove(season);
+
     public void Remove(MediaItem item) => db.MediaItems.Remove(item);
 
     private static IQueryable<MediaItem> ApplySort(IQueryable<MediaItem> query, MediaSortField sort, bool desc) => sort switch

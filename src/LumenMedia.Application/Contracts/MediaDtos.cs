@@ -91,7 +91,7 @@ public sealed record DeleteMediaFileResponse
     public int DeletedFiles { get; init; }
     /// <summary>How many media_sources rows were removed.</summary>
     public int SourcesRemoved { get; init; }
-    /// <summary>True when the movie/episode itself was removed after losing all sources.</summary>
+    /// <summary>True when the movie, episode, season, or series row itself was removed.</summary>
     public bool MediaRemoved { get; init; }
 }
 

@@ -139,6 +139,7 @@ public interface IMediaRepository
     Task AddArtworkAsync(Artwork artwork, CancellationToken ct);
 
     void RemoveEpisode(Episode episode);
+    void RemoveSeason(Season season);
     void Remove(MediaItem item);
 }
 

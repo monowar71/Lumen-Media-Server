@@ -103,7 +103,7 @@ public sealed class MediaController(
         return File(result.Content, result.ContentType);
     }
 
-    /// <summary>Deletes the on-disk video file(s) for a movie or episode (admin).</summary>
+    /// <summary>Deletes the on-disk video file(s) for a movie, episode, season, or series (admin).</summary>
     [HttpDelete("items/{id:guid}/file")]
     [Authorize(Policy = "Admin")]
     [ProducesResponseType(typeof(DeleteMediaFileResponse), StatusCodes.Status200OK)]

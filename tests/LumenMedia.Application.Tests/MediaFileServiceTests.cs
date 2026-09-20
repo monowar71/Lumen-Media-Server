@@ -73,4 +73,106 @@ public sealed class MediaFileServiceTests
         var act = () => sut.DeleteFilesAsync(caller, Guid.CreateVersion7(), default);
         await act.Should().ThrowAsync<ForbiddenException>();
     }
+
+    [Fact]
+    public async Task DeleteFiles_removes_series_files_and_row()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var library = new Library("Shows", LibraryType.Series, ["/media"], now);
+        var series = new Series(library.Id, "The Boys", now);
+        var season = series.AddSeason(new Season(series.Id, 1, "Season 1"));
+        var episode = season.AddEpisode(new Episode(series.Id, season.Id, 1, 1, now));
+        var source = new MediaSource("/media/the-boys-s01e01.mkv", "mkv", 1024, now, now);
+        source.OwnedByEpisode(episode.Id);
+        episode.AddSource(source);
+
+        var media = Substitute.For<IMediaRepository>();
+        media.GetTrackedSourcesForMediaAsync(series.Id, Arg.Any<CancellationToken>()).Returns([]);
+        media.GetTrackedSeriesGraphAsync(series.Id, Arg.Any<CancellationToken>()).Returns(series);
+
+        var libs = Substitute.For<ILibraryRepository>();
+        libs.GetByIdAsync(library.Id, Arg.Any<CancellationToken>()).Returns(library);
+
+        var progress = Substitute.For<IProgressRepository>();
+        progress.DeleteForMediaIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(0);
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Media.Returns(media);
+        uow.Libraries.Returns(libs);
+        uow.Progress.Returns(progress);
+
+        var deleter = Substitute.For<IMediaFileDeleter>();
+        deleter.TryDelete("/media/the-boys-s01e01.mkv", Arg.Any<IReadOnlyList<string>>()).Returns(true);
+
+        var artwork = Substitute.For<IArtworkStore>();
+        var sut = new MediaFileService(uow, deleter, artwork);
+
+        var caller = new Caller(Guid.CreateVersion7(), UserRole.Admin, AllLibraries: true, LibraryIds: []);
+        var result = await sut.DeleteFilesAsync(caller, series.Id, default);
+
+        result.DeletedFiles.Should().Be(1);
+        result.SourcesRemoved.Should().Be(1);
+        result.MediaRemoved.Should().BeTrue();
+        media.Received(1).RemoveSource(source);
+        media.Received(1).Remove(series);
+        media.DidNotReceive().RemoveSeason(Arg.Any<Season>());
+        artwork.Received(1).DeleteOwner(series.Id);
+        await progress.Received(1).DeleteForMediaIdsAsync(
+            Arg.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(episode.Id) && ids.Contains(series.Id)),
+            Arg.Any<CancellationToken>());
+        await uow.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteFiles_removes_season_files_and_row()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var library = new Library("Shows", LibraryType.Series, ["/media"], now);
+        var series = new Series(library.Id, "The Boys", now);
+        var season = series.AddSeason(new Season(series.Id, 5, "Season 5"));
+        var episode = season.AddEpisode(new Episode(series.Id, season.Id, 5, 1, now));
+        var source = new MediaSource("/media/the-boys-s05e01.mkv", "mkv", 2048, now, now);
+        source.OwnedByEpisode(episode.Id);
+        episode.AddSource(source);
+
+        var media = Substitute.For<IMediaRepository>();
+        media.GetTrackedSourcesForMediaAsync(season.Id, Arg.Any<CancellationToken>()).Returns([]);
+        media.GetTrackedSeriesGraphAsync(season.Id, Arg.Any<CancellationToken>()).Returns((Series?)null);
+        media.GetSeasonAsync(season.Id, Arg.Any<CancellationToken>()).Returns(season);
+        media.GetTrackedSeriesGraphAsync(series.Id, Arg.Any<CancellationToken>()).Returns(series);
+
+        var libs = Substitute.For<ILibraryRepository>();
+        libs.GetByIdAsync(library.Id, Arg.Any<CancellationToken>()).Returns(library);
+
+        var progress = Substitute.For<IProgressRepository>();
+        progress.DeleteForMediaIdsAsync(Arg.Any<IReadOnlyCollection<Guid>>(), Arg.Any<CancellationToken>())
+            .Returns(0);
+
+        var uow = Substitute.For<IUnitOfWork>();
+        uow.Media.Returns(media);
+        uow.Libraries.Returns(libs);
+        uow.Progress.Returns(progress);
+
+        var deleter = Substitute.For<IMediaFileDeleter>();
+        deleter.TryDelete("/media/the-boys-s05e01.mkv", Arg.Any<IReadOnlyList<string>>()).Returns(true);
+
+        var artwork = Substitute.For<IArtworkStore>();
+        var sut = new MediaFileService(uow, deleter, artwork);
+
+        var caller = new Caller(Guid.CreateVersion7(), UserRole.Admin, AllLibraries: true, LibraryIds: []);
+        var result = await sut.DeleteFilesAsync(caller, season.Id, default);
+
+        result.DeletedFiles.Should().Be(1);
+        result.SourcesRemoved.Should().Be(1);
+        result.MediaRemoved.Should().BeTrue();
+        media.Received(1).RemoveSource(source);
+        media.Received(1).RemoveSeason(season);
+        media.DidNotReceive().Remove(series);
+        artwork.DidNotReceive().DeleteOwner(Arg.Any<Guid>());
+        await progress.Received(1).DeleteForMediaIdsAsync(
+            Arg.Is<IReadOnlyCollection<Guid>>(ids => ids.Contains(episode.Id) && ids.Count == 1),
+            Arg.Any<CancellationToken>());
+        await uow.Received(1).SaveChangesAsync(Arg.Any<CancellationToken>());
+    }
 }
