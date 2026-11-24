@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-11-24
+
+### Added
+
+- Admin `DELETE /api/v1/items/{id}/file` deletes all on-disk sources for a **series** or **season** (not only movie/episode), then removes the corresponding DB rows.
+
+### Changed
+
+- `/health` and server-info report version `0.1.15`.
+
 ## [0.1.14] - 2026-08-24
 
 ### Added
